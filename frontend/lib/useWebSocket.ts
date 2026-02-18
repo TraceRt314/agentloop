@@ -1,0 +1,78 @@
+"use client";
+import { useEffect, useRef, useState, useCallback } from "react";
+import type { AgentState, WSMessage } from "./types";
+
+const WS_URL = typeof window !== "undefined"
+  ? `ws://${window.location.hostname}:8080/api/v1/ws`
+  : "";
+
+export function useAgentWebSocket() {
+  const [agents, setAgents] = useState<AgentState[]>([]);
+  const [events, setEvents] = useState<WSMessage[]>([]);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<NodeJS.Timeout>(undefined);
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    
+    const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
+
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => {
+      setConnected(false);
+      reconnectRef.current = setTimeout(connect, 3000);
+    };
+    ws.onerror = () => ws.close();
+
+    ws.onmessage = (e) => {
+      const msg: WSMessage = JSON.parse(e.data);
+
+      if (msg.type === "init" && msg.data.agents) {
+        setAgents(msg.data.agents as unknown as AgentState[]);
+      } else if (msg.type === "agent.update") {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === (msg.data as { id: string }).id ? { ...a, ...msg.data } : a
+          )
+        );
+      } else if (msg.type === "agent.action") {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === (msg.data as { id: string }).id ? { ...a, ...msg.data } : a
+          )
+        );
+      }
+
+      setEvents((prev) => [msg, ...prev].slice(0, 50));
+    };
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  // Fallback: poll REST API if WS not available
+  useEffect(() => {
+    if (connected) return;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/v1/agents");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setAgents(data);
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, [connected]);
+
+  return { agents, events, connected };
+}

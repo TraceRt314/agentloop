@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  --bg-office: #1a1a2e;
+  --bg-panel: #16213e;
+  --accent: #0f3460;
+  --highlight: #e94560;
+  --text: #eee;
+  --text-dim: #8892b0;
+  --pixel-green: #4ade80;
+  --pixel-blue: #60a5fa;
+  --pixel-yellow: #fbbf24;
+  --pixel-red: #f87171;
+  --pixel-purple: #a78bfa;
+}
+
+* { image-rendering: pixelated; }
+
+body {
+  background: var(--bg-office);
+  color: var(--text);
+  font-family: 'Press Start 2P', monospace, system-ui;
+  overflow: hidden;
+}
+
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+  font-display: swap;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes blink {
+  0%, 90%, 100% { opacity: 1; }
+  95% { opacity: 0; }
+}
+
+@keyframes work-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(74, 222, 128, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(74, 222, 128, 0.6); }
+}
+
+.pixel-font { font-family: 'Press Start 2P', monospace; }
+.float-anim { animation: float 2s ease-in-out infinite; }
+.blink-anim { animation: blink 4s ease-in-out infinite; }
+.work-pulse { animation: work-pulse 2s ease-in-out infinite; }

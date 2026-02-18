@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  agentloop:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENTLOOP_DATABASE_URL=sqlite:///./data/agentloop.db
+      - AGENTLOOP_DEBUG=false
+      - AGENTLOOP_LOG_LEVEL=INFO
+      - AGENTLOOP_API_HOST=0.0.0.0
+      - AGENTLOOP_API_PORT=8000
+      - AGENTLOOP_OPENCLAW_BASE_URL=http://host.docker.internal:3000
+    volumes:
+      - ./data:/app/data
+      - ./agents:/app/agents
+      - ./projects:/app/projects
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Optional: PostgreSQL database instead of SQLite
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: agentloop
+      POSTGRES_USER: agentloop
+      POSTGRES_PASSWORD: agentloop_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    profiles: ["postgres"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentloop"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Redis for caching/queuing (future enhancement)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    profiles: ["redis"]
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+
+# To run with PostgreSQL:
+# docker-compose --profile postgres up
+
+# To run with Redis:
+# docker-compose --profile redis up
+
+# To run with both:
+# docker-compose --profile postgres --profile redis up

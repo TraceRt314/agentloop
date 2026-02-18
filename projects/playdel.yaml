@@ -1,0 +1,80 @@
+name: "Playdel"
+slug: "playdel"
+description: "App de gestión de eventos deportivos — Flutter + FastAPI"
+repo_path: "/Users/tracert/github/orgs/Playdel/PlaydelApp"
+
+agents:
+  - role: product_manager
+    auto_approve: false
+  - role: developer
+    auto_approve: true
+  - role: quality_assurance
+    auto_approve: true
+  - role: deployer
+    auto_approve: false
+
+triggers:
+  - name: "qa_on_dev_complete"
+    event_pattern:
+      event_type: "step.completed"
+      conditions:
+        step_type: "code"
+    action:
+      type: "create_step"
+      step_type: "review"
+      assign_role: "quality_assurance"
+      title: "Review: {step_title}"
+      description: "Quality assurance review of completed development work"
+      order_index: 999
+  
+  - name: "deploy_on_qa_approved"
+    event_pattern:
+      event_type: "step.completed"
+      conditions:
+        step_type: "review"
+    action:
+      type: "create_step"
+      step_type: "deploy"
+      assign_role: "deployer"
+      title: "Deploy: {mission_title}"
+      description: "Deploy approved changes to production"
+      order_index: 1000
+  
+  - name: "mission_complete_check"
+    event_pattern:
+      event_type: "step.completed"
+    action:
+      type: "evaluate_mission_completion"
+
+# Project-specific configuration
+config:
+  technologies:
+    - Flutter
+    - FastAPI
+    - PostgreSQL
+    - Firebase
+  
+  environments:
+    - development
+    - staging
+    - production
+  
+  deployment:
+    strategy: "blue-green"
+    auto_rollback: true
+    health_check_timeout: 300
+  
+  quality_gates:
+    min_test_coverage: 80
+    required_reviews: 1
+    security_scan_required: true
+  
+  notifications:
+    channels:
+      - slack_channel: "#playdel-dev"
+      - email: "dev@playdel.com"
+    
+    events:
+      - "mission.completed"
+      - "deployment.failed"
+      - "security.alert"

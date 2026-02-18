@@ -1,0 +1,9 @@
+node_modules
+.next
+__pycache__
+*.pyc
+.venv
+agentloop.db
+*.egg-info
+dist
+.env
