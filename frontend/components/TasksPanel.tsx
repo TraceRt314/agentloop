@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ROLE_COLORS } from "@/lib/types";
+import { useEffect, useState, useRef } from "react";
 
 interface MCBoard {
   id: string;
@@ -20,17 +19,31 @@ interface MCTask {
   status: string;
 }
 
+interface AgentBasic {
+  id: string;
+  name: string;
+  role: string;
+}
+
+interface ProjectBasic {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 const PRIORITY_COLORS: Record<string, string> = {
+  critical: "#ef4444",
   high: "#f87171",
-  medium: "#fbbf24",
-  low: "#4ade80",
+  medium: "#eab308",
+  low: "#22c55e",
 };
 
-const STATUS_ICONS: Record<string, string> = {
-  inbox: "📥",
-  in_progress: "⚡",
-  done: "✅",
-  cancelled: "❌",
+const STATUS_STYLES: Record<string, { icon: string; color: string }> = {
+  inbox: { icon: ">>", color: "#64748b" },
+  in_progress: { icon: "~>", color: "#3b82f6" },
+  review: { icon: "?!", color: "#a78bfa" },
+  done: { icon: "ok", color: "#22c55e" },
+  cancelled: { icon: "xx", color: "#ef4444" },
 };
 
 export default function TasksPanel() {
@@ -39,6 +52,16 @@ export default function TasksPanel() {
   const [tasks, setTasks] = useState<MCTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
+
+  // Add-task form state
+  const [showForm, setShowForm] = useState(false);
+  const [formTitle, setFormTitle] = useState("");
+  const [formDesc, setFormDesc] = useState("");
+  const [formPriority, setFormPriority] = useState("medium");
+  const [submitting, setSubmitting] = useState(false);
+  const [agents, setAgents] = useState<AgentBasic[]>([]);
+  const [projects, setProjects] = useState<ProjectBasic[]>([]);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   // Fetch boards
   useEffect(() => {
@@ -50,6 +73,15 @@ export default function TasksPanel() {
         if (d.boards?.length > 0) setSelectedBoard(d.boards[0].id);
       })
       .catch(() => setLoading(false));
+
+    // Also fetch agents + projects for the add-task form
+    fetch("/api/v1/dashboard/overview")
+      .then((r) => r.json())
+      .then((d) => {
+        setAgents(d.agents || []);
+        setProjects(d.projects || []);
+      })
+      .catch(() => {});
   }, []);
 
   // Fetch tasks when board selected
@@ -65,39 +97,71 @@ export default function TasksPanel() {
       .catch(() => setLoadingTasks(false));
   }, [selectedBoard]);
 
+  // Focus title input when form opens
+  useEffect(() => {
+    if (showForm) titleRef.current?.focus();
+  }, [showForm]);
+
+  const handleCreateTask = async () => {
+    if (!formTitle.trim() || agents.length === 0 || projects.length === 0) return;
+    setSubmitting(true);
+
+    try {
+      const res = await fetch("/api/v1/proposals/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: formTitle.trim(),
+          description: formDesc.trim() || formTitle.trim(),
+          rationale: "Created from AgentLoop UI",
+          priority: formPriority,
+          auto_approve: formPriority === "critical" || formPriority === "high",
+          agent_id: agents[0].id,
+          project_id: projects[0].id,
+        }),
+      });
+
+      if (res.ok) {
+        setFormTitle("");
+        setFormDesc("");
+        setFormPriority("medium");
+        setShowForm(false);
+      }
+    } catch {
+      // silently fail — user sees no change
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) {
-    return <div className="p-6 text-center text-slate-600 ui-label text-xs animate-pulse">Loading boards...</div>;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <span className="ui-label text-slate-600 animate-pulse">loading boards...</span>
+      </div>
+    );
   }
 
   return (
     <div className="flex h-full">
-      {/* Board list */}
-      <div className="w-56 border-r border-slate-800/50 p-3 space-y-1.5 overflow-y-auto">
-        <h3 className="ui-label text-[9px] text-slate-500 uppercase tracking-wider mb-3">📋 MC Boards</h3>
+      {/* Sidebar — board list */}
+      <div className="w-52 shrink-0 border-r border-slate-800/40 p-3 flex flex-col gap-1.5 overflow-y-auto">
+        <div className="ui-label text-slate-600 mb-2">boards</div>
         {boards.map((b) => (
           <button
             key={b.id}
             onClick={() => setSelectedBoard(b.id)}
-            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all ${
+            className={`w-full text-left px-3 py-2 rounded-md border transition-all ${
               selectedBoard === b.id
-                ? "bg-blue-500/10 border-blue-500/30 text-white"
-                : "bg-slate-800/30 border-slate-700/20 text-slate-400 hover:bg-slate-800/50"
+                ? "bg-blue-500/10 border-blue-500/20 text-blue-300"
+                : "bg-transparent border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/40"
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium truncate">{b.name}</span>
-              <span className="ui-label text-slate-500 shrink-0 ml-2" style={{ fontSize: 8 }}>
-                {b.task_count}
-              </span>
-            </div>
-            <div className="flex gap-1 mt-1.5">
-              {Object.entries(b.status_counts).map(([status, count]) => (
-                <span
-                  key={status}
-                  className="px-1.5 py-0.5 rounded text-slate-500"
-                  style={{ fontSize: 7, background: "rgba(255,255,255,0.05)" }}
-                >
-                  {STATUS_ICONS[status] ?? "•"} {count}
+            <div className="text-xs font-medium truncate">{b.name}</div>
+            <div className="flex gap-2 mt-1">
+              {Object.entries(b.status_counts).map(([st, count]) => (
+                <span key={st} className="text-[10px] text-slate-600">
+                  {STATUS_STYLES[st]?.icon ?? "."}{count}
                 </span>
               ))}
             </div>
@@ -105,53 +169,132 @@ export default function TasksPanel() {
         ))}
       </div>
 
-      {/* Task list */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        {loadingTasks ? (
-          <div className="text-center text-slate-600 ui-label text-xs animate-pulse mt-8">Loading tasks...</div>
-        ) : tasks.length === 0 ? (
-          <div className="text-center text-slate-700 text-xs mt-8">No tasks in this board</div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="ui-label text-xs text-slate-400">
-                {boards.find((b) => b.id === selectedBoard)?.name ?? "Tasks"}
-              </h3>
-              <span className="ui-label text-slate-600" style={{ fontSize: 8 }}>{tasks.length} tasks</span>
-            </div>
-            {tasks.map((task) => (
-              <div
-                key={task.id}
-                className="p-3 rounded-lg border border-slate-700/30 bg-slate-800/30 hover:bg-slate-800/50 transition-all group"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="text-sm mt-0.5">{STATUS_ICONS[task.status] ?? "📌"}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-200 group-hover:text-white transition">{task.title}</span>
-                    </div>
-                    {task.description && (
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{task.description}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-2">
-                      <span
-                        className="px-2 py-0.5 rounded-full text-xs font-medium"
-                        style={{
-                          fontSize: 9,
-                          color: PRIORITY_COLORS[task.priority] ?? "#8892b0",
-                          background: `${PRIORITY_COLORS[task.priority] ?? "#8892b0"}15`,
-                        }}
-                      >
-                        {task.priority}
-                      </span>
-                      <span className="text-slate-600" style={{ fontSize: 9 }}>{task.status}</span>
-                    </div>
-                  </div>
+      {/* Main task list */}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {/* Header with add button */}
+        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800/40">
+          <div className="flex items-center gap-3">
+            <span className="ui-label text-slate-400">
+              {boards.find((b) => b.id === selectedBoard)?.name ?? "tasks"}
+            </span>
+            <span className="text-[10px] text-slate-700">{tasks.length} items</span>
+          </div>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className={`ui-label px-3 py-1 rounded-md border transition-all ${
+              showForm
+                ? "bg-red-500/10 border-red-500/20 text-red-400"
+                : "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20"
+            }`}
+          >
+            {showForm ? "cancel" : "+ new task"}
+          </button>
+        </div>
+
+        {/* Add task form */}
+        {showForm && (
+          <div className="shrink-0 px-4 py-3 border-b border-slate-800/40 bg-slate-900/40 fade-in">
+            <div className="space-y-2">
+              <input
+                ref={titleRef}
+                type="text"
+                placeholder="task title..."
+                value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleCreateTask()}
+                className="w-full px-3 py-2 rounded-md bg-slate-800/60 border border-slate-700/40 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/40 transition"
+              />
+              <textarea
+                placeholder="description (optional)..."
+                value={formDesc}
+                onChange={(e) => setFormDesc(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 rounded-md bg-slate-800/60 border border-slate-700/40 text-xs text-slate-300 placeholder-slate-600 outline-none focus:border-blue-500/40 transition resize-none"
+              />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="ui-label text-slate-600 text-[9px]">priority:</span>
+                  {["low", "medium", "high", "critical"].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setFormPriority(p)}
+                      className={`ui-label px-2 py-0.5 rounded text-[9px] border transition-all ${
+                        formPriority === p
+                          ? "border-current"
+                          : "border-transparent opacity-40 hover:opacity-70"
+                      }`}
+                      style={{ color: PRIORITY_COLORS[p] }}
+                    >
+                      {p}
+                    </button>
+                  ))}
                 </div>
+                <button
+                  onClick={handleCreateTask}
+                  disabled={!formTitle.trim() || submitting}
+                  className="ui-label px-4 py-1.5 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  {submitting ? "creating..." : "create proposal"}
+                </button>
               </div>
-            ))}
+            </div>
           </div>
         )}
+
+        {/* Scrollable task list */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+          {loadingTasks ? (
+            <div className="flex items-center justify-center h-32">
+              <span className="ui-label text-slate-600 animate-pulse">loading tasks...</span>
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="flex items-center justify-center h-32">
+              <span className="text-xs text-slate-700">no tasks on this board</span>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {tasks.map((task) => {
+                const style = STATUS_STYLES[task.status] ?? STATUS_STYLES.inbox;
+                return (
+                  <div
+                    key={task.id}
+                    className="group px-3 py-2.5 rounded-md border border-slate-800/30 hover:border-slate-700/40 hover:bg-slate-800/20 transition-all"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className="ui-label shrink-0 mt-0.5 w-6 text-center"
+                        style={{ color: style.color, fontSize: 9 }}
+                      >
+                        {style.icon}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] text-slate-300 group-hover:text-slate-100 transition">
+                          {task.title}
+                        </span>
+                        {task.description && (
+                          <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2 leading-relaxed">
+                            {task.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <span
+                          className="ui-label text-[9px] px-1.5 py-0.5 rounded"
+                          style={{
+                            color: PRIORITY_COLORS[task.priority] ?? "#64748b",
+                            background: `${PRIORITY_COLORS[task.priority] ?? "#64748b"}12`,
+                          }}
+                        >
+                          {task.priority}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

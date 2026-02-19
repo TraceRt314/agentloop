@@ -5,22 +5,27 @@ interface Props {
   events: WSMessage[];
 }
 
-const EVENT_ICONS: Record<string, string> = {
-  "init": "🔌",
-  "agent.update": "🤖",
-  "agent.action": "⚡",
-  "step.completed": "✅",
-  "step.failed": "❌",
-  "mission.completed": "🎯",
-  "proposal.approved": "👍",
-  "proposal.rejected": "👎",
-  "trigger.fired": "🔔",
-  "pong": "💓",
+const EVENT_SYMBOLS: Record<string, string> = {
+  "init": "--",
+  "agent.update": ">>",
+  "agent.action": "->",
+  "agent.batch_update": "=>",
+  "step.completed": "ok",
+  "step.failed": "!!",
+  "mission.completed": "**",
+  "proposal.approved": "++",
+  "proposal.rejected": "--",
+  "trigger.fired": "~~",
+  "pong": "..",
 };
 
 function formatTime(ts: string) {
   try {
-    return new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return new Date(ts).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
   } catch {
     return ts;
   }
@@ -29,27 +34,29 @@ function formatTime(ts: string) {
 export default function EventFeed({ events }: Props) {
   return (
     <div className="h-full flex flex-col">
-      <h3 className="ui-mono text-xs text-slate-400 mb-3 flex items-center gap-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-        LIVE FEED
-      </h3>
-      <div className="flex-1 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+        <span className="ui-label text-slate-500">live feed</span>
+      </div>
+      <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
         {events.length === 0 && (
-          <p className="text-slate-600 text-xs ui-mono">Waiting for events...</p>
+          <p className="text-slate-700 text-xs">waiting for events...</p>
         )}
         {events.map((ev, i) => (
           <div
             key={i}
-            className="flex items-start gap-2 px-2 py-1.5 rounded bg-slate-800/50 border border-slate-700/30 text-xs"
+            className="flex items-start gap-2 px-2 py-1 rounded hover:bg-slate-800/30 transition text-[11px]"
           >
-            <span className="text-sm shrink-0">{EVENT_ICONS[ev.type] ?? "📡"}</span>
+            <span className="ui-label text-slate-600 shrink-0 w-5 text-center" style={{ fontSize: 9 }}>
+              {EVENT_SYMBOLS[ev.type] ?? ">>"}
+            </span>
             <div className="min-w-0 flex-1">
-              <span className="text-slate-300 font-mono">{ev.type}</span>
+              <span className="text-slate-400">{ev.type}</span>
               {ev.data && typeof ev.data === "object" && "name" in ev.data && (
-                <span className="text-slate-500 ml-1">→ {String(ev.data.name)}</span>
+                <span className="text-slate-600 ml-1">{String(ev.data.name)}</span>
               )}
             </div>
-            <span className="text-slate-600 shrink-0 ui-mono" style={{ fontSize: 6 }}>
+            <span className="text-slate-700 shrink-0" style={{ fontSize: 9 }}>
               {formatTime(ev.ts)}
             </span>
           </div>
