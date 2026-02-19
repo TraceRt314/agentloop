@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session
 
-from .api import agents, events, missions, projects, proposals, steps, triggers, websocket
+from .api import agents, events, missions, projects, proposals, steps, triggers, websocket, simulation
 from .config import settings
 from .database import create_db_and_tables, get_session
 from .engine.orchestrator import OrchestrationEngine
@@ -41,6 +41,7 @@ app.include_router(steps.router)
 app.include_router(events.router)
 app.include_router(triggers.router)
 app.include_router(websocket.router)
+app.include_router(simulation.router)
 
 # Global orchestrator instance
 orchestrator = OrchestrationEngine()
