@@ -1,7 +1,7 @@
-name: "Playdel"
-slug: "playdel"
-description: "App de gestión de eventos deportivos — Flutter + FastAPI"
-repo_path: "/Users/tracert/github/orgs/Playdel/PlaydelApp"
+name: "Example Project"
+slug: "example"
+description: "Example project configuration for AgentLoop"
+repo_path: ""  # Set to the absolute path of your repo
 
 agents:
   - role: product_manager
@@ -26,7 +26,7 @@ triggers:
       title: "Review: {step_title}"
       description: "Quality assurance review of completed development work"
       order_index: 999
-  
+
   - name: "deploy_on_qa_approved"
     event_pattern:
       event_type: "step.completed"
@@ -39,42 +39,30 @@ triggers:
       title: "Deploy: {mission_title}"
       description: "Deploy approved changes to production"
       order_index: 1000
-  
+
   - name: "mission_complete_check"
     event_pattern:
       event_type: "step.completed"
     action:
       type: "evaluate_mission_completion"
 
-# Project-specific configuration
 config:
   technologies:
-    - Flutter
+    - Python
     - FastAPI
     - PostgreSQL
-    - Firebase
-  
+
   environments:
     - development
     - staging
     - production
-  
+
   deployment:
     strategy: "blue-green"
     auto_rollback: true
     health_check_timeout: 300
-  
+
   quality_gates:
     min_test_coverage: 80
     required_reviews: 1
     security_scan_required: true
-  
-  notifications:
-    channels:
-      - slack_channel: "#playdel-dev"
-      - email: "dev@playdel.com"
-    
-    events:
-      - "mission.completed"
-      - "deployment.failed"
-      - "security.alert"

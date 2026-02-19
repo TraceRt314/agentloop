@@ -1,5 +1,11 @@
-"""Seed the database with initial project and agents for Playdel."""
+"""Seed the database with an example project and agents.
 
+Usage:
+    python scripts/seed.py                           # defaults
+    python scripts/seed.py --name MyProject --slug myproject --repo /path/to/repo
+"""
+
+import argparse
 import sys
 import os
 
@@ -10,27 +16,25 @@ from agentloop.models import Agent, Project, AgentStatus, AgentAction, Trigger
 from sqlmodel import Session
 from uuid_extensions import uuid7
 
-def seed():
+
+def seed(name: str, slug: str, description: str, repo_path: str, board_id: str):
     create_db_and_tables()
 
     with Session(engine) as session:
-        # Check if already seeded
         from sqlmodel import select
-        existing = session.exec(select(Project).where(Project.slug == "playdel")).first()
+        existing = session.exec(select(Project).where(Project.slug == slug)).first()
         if existing:
-            print("Already seeded. Skipping.")
+            print(f"Project '{slug}' already seeded. Skipping.")
             return
 
-        # Create Playdel project
         project = Project(
             id=uuid7(),
-            name="Playdel",
-            slug="playdel",
-            description="App de gestión de eventos deportivos — Flutter + FastAPI",
-            repo_path="/Users/tracert/github/orgs/Playdel/PlaydelApp",
+            name=name,
+            slug=slug,
+            description=description,
+            repo_path=repo_path,
             config={
-                "mission_control_board_id": "f961ea63-1619-47e1-9925-c54bcae17a08",
-                "tech_stack": ["flutter", "fastapi", "firebase"],
+                "mission_control_board_id": board_id,
             },
         )
         session.add(project)
@@ -118,7 +122,15 @@ def seed():
             session.add(trigger)
 
         session.commit()
-        print("✅ Seeded: Playdel project + 4 agents (Luna, Spark, Sage, Bolt) + 2 triggers")
+        print(f"Seeded: {name} project + 4 agents (Luna, Spark, Sage, Bolt) + 2 triggers")
+
 
 if __name__ == "__main__":
-    seed()
+    parser = argparse.ArgumentParser(description="Seed AgentLoop database")
+    parser.add_argument("--name", default="Example Project", help="Project name")
+    parser.add_argument("--slug", default="example", help="Project slug")
+    parser.add_argument("--description", default="Example project for AgentLoop", help="Project description")
+    parser.add_argument("--repo", default="", help="Path to the project repository")
+    parser.add_argument("--board-id", default="", help="Mission Control board UUID")
+    args = parser.parse_args()
+    seed(args.name, args.slug, args.description, args.repo, args.board_id)

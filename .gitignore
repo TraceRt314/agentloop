@@ -1,9 +1,34 @@
-node_modules
-.next
-__pycache__
+# Python
+__pycache__/
 *.pyc
-.venv
-agentloop.db
-*.egg-info
-dist
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+*.db
+
+# Node / Frontend
+node_modules/
+.next/
+.turbo/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+*.sqlite3
