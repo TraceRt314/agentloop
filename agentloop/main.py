@@ -10,9 +10,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session
 
-from .api import agents, events, missions, projects, proposals, steps, triggers, websocket, simulation, dashboard
+from .api import agents, chat, context, events, missions, projects, proposals, steps, triggers, websocket, simulation, dashboard
 from .config import settings
-from .database import create_db_and_tables, get_session, run_migrations
+from .database import create_db_and_tables, engine, get_session, run_migrations
 from .engine.orchestrator import OrchestrationEngine
 from .schemas import OrchestrationResult, WorkCycleResult
 
@@ -66,6 +66,8 @@ app.include_router(triggers.router)
 app.include_router(websocket.router)
 app.include_router(simulation.router)
 app.include_router(dashboard.router)
+app.include_router(context.router)
+app.include_router(chat.router)
 
 # Global orchestrator instance
 orchestrator = OrchestrationEngine()
@@ -76,8 +78,20 @@ async def startup_event():
     """Initialize the application on startup."""
     run_migrations()
 
+    # Wire SSE sync callback so new MC tasks trigger immediate sync
+    from .integrations.mc_streams import set_sync_callback, start_all_board_streams
+
+    def _sync_board(board_id: str) -> None:
+        """Trigger an orchestrator tick when SSE detects a new task."""
+        try:
+            with Session(engine) as session:
+                orchestrator._sync_mission_control(session)
+        except Exception:
+            logger.warning("SSE-triggered sync failed for board %s", board_id)
+
+    set_sync_callback(_sync_board)
+
     # Start SSE listeners for Mission Control boards
-    from .integrations.mc_streams import start_all_board_streams
     try:
         await start_all_board_streams()
     except Exception:
