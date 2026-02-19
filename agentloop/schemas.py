@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from .models import (
     AgentStatus,
     MissionStatus,
+    ProjectStatus,
     ProposalPriority,
     ProposalStatus,
     StepStatus,
@@ -73,6 +74,7 @@ class ProjectBase(BaseSchema):
     slug: str
     description: str
     repo_path: Optional[str] = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
     config: Dict[str, Any] = {}
 
 
@@ -86,6 +88,7 @@ class ProjectUpdate(BaseSchema):
     name: Optional[str] = None
     description: Optional[str] = None
     repo_path: Optional[str] = None
+    status: Optional[ProjectStatus] = None
     config: Optional[Dict[str, Any]] = None
 
 
@@ -301,3 +304,51 @@ class AgentWork(BaseSchema):
     """Schema for agent work assignment."""
     steps: List[Step] = []
     context: Dict[str, Any] = {}
+
+
+# ProjectContext schemas
+class ProjectContextCreate(BaseSchema):
+    """Schema for creating a project context entry."""
+    project_id: UUID
+    category: str
+    key: str
+    content: str
+    source_agent_id: Optional[UUID] = None
+    source_step_id: Optional[UUID] = None
+
+
+class ProjectContext(BaseSchema):
+    """Project context response schema."""
+    id: UUID
+    project_id: UUID
+    category: str
+    key: str
+    content: str
+    source_agent_id: Optional[UUID] = None
+    source_step_id: Optional[UUID] = None
+    created_at: datetime
+
+
+# Chat schemas
+class ChatMessageCreate(BaseSchema):
+    """Schema for sending a chat message."""
+    content: str
+    project_id: Optional[UUID] = None
+    session_id: Optional[str] = None
+
+
+class ChatMessageResponse(BaseSchema):
+    """Chat message response schema."""
+    id: UUID
+    role: str
+    content: str
+    project_id: Optional[UUID] = None
+    session_id: str
+    created_at: datetime
+
+
+class ChatResponse(BaseSchema):
+    """Response from the chatbot."""
+    user_message: ChatMessageResponse
+    assistant_message: ChatMessageResponse
+    session_id: str

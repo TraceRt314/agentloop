@@ -9,6 +9,13 @@ from uuid_extensions import uuid7
 from sqlmodel import Column, Field, JSON, Relationship, SQLModel
 
 
+class ProjectStatus(str, Enum):
+    """Project lifecycle status."""
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DECOMMISSIONED = "decommissioned"
+
+
 class AgentStatus(str, Enum):
     """Agent status values."""
     ACTIVE = "active"
@@ -115,6 +122,7 @@ class Project(BaseModel, table=True):
     slug: str = Field(unique=True, index=True)
     description: str
     repo_path: Optional[str] = None
+    status: ProjectStatus = Field(default=ProjectStatus.ACTIVE, index=True)
     config: Dict[str, Any] = Field(sa_column=Column(JSON))
     
     # Relationships
@@ -123,6 +131,7 @@ class Project(BaseModel, table=True):
     missions: List["Mission"] = Relationship(back_populates="project")
     events: List["Event"] = Relationship(back_populates="project")
     triggers: List["Trigger"] = Relationship(back_populates="project")
+    context_entries: List["ProjectContext"] = Relationship(back_populates="project")
 
 
 class Proposal(BaseModel, table=True):
@@ -202,6 +211,39 @@ class Trigger(BaseModel, table=True):
     action: Dict[str, Any] = Field(sa_column=Column(JSON))
     enabled: bool = Field(default=True, index=True)
     last_fired_at: Optional[datetime] = None
-    
+
     # Relationships
     project: Project = Relationship(back_populates="triggers")
+
+
+class ProjectContext(BaseModel, table=True):
+    """Per-project persistent memory for agent context.
+
+    Stores learnings, patterns, decisions and history so that
+    agents have continuity across work sessions.
+    """
+    __tablename__ = "projectcontext"
+
+    project_id: UUID = Field(foreign_key="project.id", index=True)
+    category: str = Field(index=True)  # architecture, decisions, patterns, bugs, notes
+    key: str = Field(index=True)
+    content: str
+    source_agent_id: Optional[UUID] = Field(foreign_key="agent.id", default=None)
+    source_step_id: Optional[UUID] = Field(foreign_key="step.id", default=None)
+
+    # Relationships
+    project: Project = Relationship(back_populates="context_entries")
+    source_agent: Optional[Agent] = Relationship()
+
+
+class ChatMessage(BaseModel, table=True):
+    """Persistent chat messages for the OpenClaw chatbot."""
+    __tablename__ = "chatmessage"
+
+    project_id: Optional[UUID] = Field(foreign_key="project.id", default=None, index=True)
+    role: str  # user, assistant, system
+    content: str
+    session_id: str = Field(index=True)  # groups messages in a conversation
+
+    # Relationships
+    project: Optional[Project] = Relationship()
