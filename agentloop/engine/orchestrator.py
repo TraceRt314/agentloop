@@ -521,7 +521,7 @@ class OrchestrationEngine:
         from ..integrations.mission_control import (
             BOARD_PROJECT_MAP, sync_tasks_for_project,
         )
-        from ..models import AgentStatus, ProposalPriority, ProposalStatus, Project
+        from ..models import AgentStatus, ProjectStatus, ProposalPriority, ProposalStatus, Project
 
         if not BOARD_PROJECT_MAP:
             return
@@ -532,6 +532,8 @@ class OrchestrationEngine:
                     select(Project).where(Project.slug == project_slug)
                 ).first()
                 if not project:
+                    continue
+                if project.status == ProjectStatus.DECOMMISSIONED:
                     continue
 
                 default_agent = session.exec(

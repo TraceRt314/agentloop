@@ -1,14 +1,14 @@
 """Project management API endpoints."""
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 from sqlmodel import select
 
 from ..database import get_session
-from ..models import Project
+from ..models import Project, ProjectStatus
 from ..schemas import (
     Project as ProjectSchema,
     ProjectCreate,
@@ -21,10 +21,16 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 @router.get("/", response_model=List[ProjectSchema])
 def list_projects(
     session: Session = Depends(get_session),
+    status_filter: Optional[ProjectStatus] = Query(None, alias="status"),
+    include_decommissioned: bool = Query(False),
 ):
-    """List all projects."""
-    result = session.exec(select(Project))
-    return result.all()
+    """List projects. Excludes decommissioned by default."""
+    stmt = select(Project)
+    if status_filter:
+        stmt = stmt.where(Project.status == status_filter)
+    elif not include_decommissioned:
+        stmt = stmt.where(Project.status != ProjectStatus.DECOMMISSIONED)
+    return session.exec(stmt).all()
 
 
 @router.post("/", response_model=ProjectSchema, status_code=status.HTTP_201_CREATED)
