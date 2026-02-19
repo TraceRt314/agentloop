@@ -146,3 +146,22 @@ def report_agent_activity(
         {"content": f"[AgentLoop] {agent_name}: {action}"},
     )
     return result is not None
+
+
+def ask_user(
+    board_id: str,
+    content: str,
+    correlation_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Escalate a question to the human via MC's gateway-main ask-user.
+
+    Used for human-in-the-loop decisions when an agent gets stuck
+    or needs explicit approval for a high-impact action.
+    """
+    payload: Dict[str, Any] = {"content": content}
+    if correlation_id:
+        payload["correlation_id"] = correlation_id
+    return mc_post(
+        f"/api/v1/agent/boards/{board_id}/gateway/main/ask-user",
+        payload,
+    )

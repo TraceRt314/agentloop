@@ -88,8 +88,12 @@ class OrchestrationEngine:
             # 5. Check for completed missions
             completion_results = self._check_mission_completions(session)
             actions_executed += len(completion_results)
-            
-            # 6. Cleanup old events and expired proposals
+
+            # 6. Escalate stuck missions to human
+            escalated = self._escalate_stuck_missions(session)
+            actions_executed += escalated
+
+            # 7. Cleanup old events and expired proposals
             cleanup_results = self._cleanup_old_data(session)
             actions_executed += cleanup_results
             
@@ -576,6 +580,75 @@ class OrchestrationEngine:
                 session.commit()
             except Exception as e:
                 logger.warning("MC sync for board %s failed: %s", board_id, e)
+
+    def _escalate_stuck_missions(self, session: Session) -> int:
+        """Detect missions with failed steps and escalate to human via MC.
+
+        A mission is considered stuck when at least one step is FAILED
+        and no steps are currently RUNNING or PENDING.
+        """
+        from ..integrations.mission_control import ask_user
+
+        escalated = 0
+        try:
+            active_missions = session.exec(
+                select(Mission).where(Mission.status == MissionStatus.ACTIVE)
+            ).all()
+
+            for mission in active_missions:
+                steps = session.exec(
+                    select(Step).where(Step.mission_id == mission.id)
+                ).all()
+                if not steps:
+                    continue
+
+                has_failed = any(s.status == StepStatus.FAILED for s in steps)
+                has_pending = any(
+                    s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.CLAIMED)
+                    for s in steps
+                )
+
+                if has_failed and not has_pending:
+                    # Find the MC board for this mission
+                    proposal = session.get(Proposal, mission.proposal_id)
+                    if not proposal or not proposal.mc_board_id:
+                        continue
+
+                    failed_step = next(s for s in steps if s.status == StepStatus.FAILED)
+                    msg = (
+                        f"Mission '{mission.title}' is stuck.\n"
+                        f"Failed step: {failed_step.title} ({failed_step.step_type.value})\n"
+                        f"Error: {failed_step.error or 'unknown'}\n\n"
+                        f"Please advise: retry, skip, or cancel?"
+                    )
+                    result = ask_user(
+                        proposal.mc_board_id,
+                        msg,
+                        correlation_id=f"stuck-mission-{mission.id}",
+                    )
+                    if result:
+                        logger.info(
+                            "Escalated stuck mission %s to human via MC", mission.id
+                        )
+                        # Record escalation event
+                        event = Event(
+                            event_type="mission.escalated",
+                            project_id=mission.project_id,
+                            source_agent_id=mission.assigned_agent_id,
+                            payload={
+                                "mission_id": str(mission.id),
+                                "failed_step_id": str(failed_step.id),
+                                "reason": "stuck_failed_steps",
+                            },
+                        )
+                        session.add(event)
+                        escalated += 1
+
+            if escalated:
+                session.commit()
+        except Exception:
+            logger.exception("Failed to escalate stuck missions")
+        return escalated
 
     def _cleanup_old_data(self, session: Session) -> int:
         """Clean up old events and expired proposals."""

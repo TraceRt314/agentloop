@@ -76,6 +76,20 @@ async def startup_event():
     """Initialize the application on startup."""
     run_migrations()
 
+    # Start SSE listeners for Mission Control boards
+    from .integrations.mc_streams import start_all_board_streams
+    try:
+        await start_all_board_streams()
+    except Exception:
+        logger.warning("Could not start MC SSE streams (will fall back to polling)")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    from .integrations.mc_streams import stop_all_streams
+    await stop_all_streams()
+
 
 @app.get("/")
 async def root():
@@ -92,6 +106,92 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": time.time()}
+
+
+@app.get("/api/v1/health")
+def deep_health_check(session: Session = Depends(get_session)):
+    """Deep health check: DB, MC, stuck missions, agent activity."""
+    from .integrations.mission_control import mc_get
+    from .models import Agent, AgentStatus, Mission, MissionStatus, Step, StepStatus
+    from sqlmodel import select, func
+    from datetime import datetime, timedelta
+
+    checks: dict = {}
+
+    # 1. Database
+    try:
+        count = session.exec(select(func.count(Agent.id))).one()
+        checks["database"] = {"status": "ok", "agents": count}
+    except Exception as e:
+        checks["database"] = {"status": "error", "error": str(e)}
+
+    # 2. Mission Control connectivity
+    try:
+        result = mc_get("/healthz")
+        checks["mission_control"] = {
+            "status": "ok" if result else "unreachable",
+        }
+    except Exception as e:
+        checks["mission_control"] = {"status": "error", "error": str(e)}
+
+    # 3. Stuck missions (failed steps, no pending)
+    try:
+        active = session.exec(
+            select(Mission).where(Mission.status == MissionStatus.ACTIVE)
+        ).all()
+        stuck = 0
+        for m in active:
+            steps = session.exec(select(Step).where(Step.mission_id == m.id)).all()
+            has_failed = any(s.status == StepStatus.FAILED for s in steps)
+            has_pending = any(
+                s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.CLAIMED)
+                for s in steps
+            )
+            if has_failed and not has_pending:
+                stuck += 1
+        checks["missions"] = {
+            "active": len(active),
+            "stuck": stuck,
+            "status": "warning" if stuck > 0 else "ok",
+        }
+    except Exception as e:
+        checks["missions"] = {"status": "error", "error": str(e)}
+
+    # 4. Agent heartbeats
+    try:
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=10)
+        active_agents = session.exec(
+            select(Agent).where(Agent.status == AgentStatus.ACTIVE)
+        ).all()
+        stale = [a.name for a in active_agents if a.last_seen_at and a.last_seen_at < stale_cutoff]
+        checks["agents"] = {
+            "total_active": len(active_agents),
+            "stale": stale,
+            "status": "warning" if stale else "ok",
+        }
+    except Exception as e:
+        checks["agents"] = {"status": "error", "error": str(e)}
+
+    # 5. SSE streams
+    from .integrations.mc_streams import _active_streams
+    checks["sse_streams"] = {
+        "active_boards": len(_active_streams),
+        "status": "ok" if _active_streams else "inactive",
+    }
+
+    overall = "healthy"
+    for c in checks.values():
+        if c.get("status") == "error":
+            overall = "degraded"
+            break
+        if c.get("status") == "warning":
+            overall = "warning"
+
+    return {
+        "status": overall,
+        "timestamp": time.time(),
+        "checks": checks,
+    }
 
 
 # Orchestrator endpoints
