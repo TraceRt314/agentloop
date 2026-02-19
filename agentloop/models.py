@@ -137,6 +137,8 @@ class Proposal(BaseModel, table=True):
     auto_approve: bool = Field(default=False)
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None
+    mc_task_id: Optional[str] = Field(default=None, index=True)
+    mc_board_id: Optional[str] = Field(default=None)
     
     # Relationships
     agent: Agent = Relationship(back_populates="proposals")

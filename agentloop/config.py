@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     mc_base_url: str = "http://localhost:8002"
     mc_token: str = ""
     mc_org_id: str = ""
+    board_map: str = "{}"
 
     # Agent defaults
     agent_work_interval_seconds: int = 300

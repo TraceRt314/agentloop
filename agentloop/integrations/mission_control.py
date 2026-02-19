@@ -72,9 +72,17 @@ def get_board_tasks(board_id: str, status: str = None) -> List[dict]:
     return data.get("items", []) if data else []
 
 
-def update_task_status(board_id: str, task_id: str, status: str) -> Optional[dict]:
-    """Update a task's status in Mission Control."""
-    return mc_patch(f"/api/v1/boards/{board_id}/tasks/{task_id}", {"status": status})
+def update_task_status(
+    board_id: str, task_id: str, status: str, comment: str = "Status updated by AgentLoop."
+) -> Optional[dict]:
+    """Update a task's status in Mission Control.
+
+    MC requires a ``comment`` field on status transitions.
+    """
+    return mc_patch(
+        f"/api/v1/boards/{board_id}/tasks/{task_id}",
+        {"status": status, "comment": comment},
+    )
 
 
 def create_task(
@@ -98,8 +106,7 @@ def _load_board_project_map() -> dict:
     Falls back to an empty dict if not configured.
     """
     import json
-    import os
-    raw = os.environ.get("AGENTLOOP_BOARD_MAP", "")
+    raw = settings.board_map
     if raw:
         try:
             return json.loads(raw)

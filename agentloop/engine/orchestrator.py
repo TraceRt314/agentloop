@@ -27,6 +27,9 @@ from ..schemas import OrchestrationResult, WorkCycleResult
 from .approval import ApprovalEngine
 from .worker import WorkerEngine
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class OrchestrationEngine:
     """Main orchestration engine that runs the closed-loop system."""
@@ -60,6 +63,9 @@ class OrchestrationEngine:
         actions_executed = 0
         
         try:
+            # 0. Sync tasks from Mission Control → proposals
+            self._sync_mission_control(session)
+
             # 1. Process pending approvals
             approval_results = self.approval_engine.process_pending_approvals(session)
             actions_executed += len(approval_results)
@@ -449,7 +455,7 @@ class OrchestrationEngine:
                     mission.status = MissionStatus.COMPLETED
                     mission.completed_at = datetime.utcnow()
                     completed_missions.append(mission)
-                    
+
                     # Create mission completed event
                     event = Event(
                         event_type="mission.completed",
@@ -461,6 +467,9 @@ class OrchestrationEngine:
                         }
                     )
                     session.add(event)
+
+                    # Report completion back to MC
+                    self._report_mission_to_mc(mission, session)
             
             session.commit()
         
@@ -470,6 +479,107 @@ class OrchestrationEngine:
         
         return completed_missions
     
+    def _report_mission_to_mc(self, mission: Mission, session: Session) -> None:
+        """Report a completed mission back to Mission Control."""
+        from ..integrations.mission_control import (
+            report_agent_activity, update_task_status,
+        )
+
+        proposal = session.get(Proposal, mission.proposal_id)
+        if not proposal or not proposal.mc_task_id or not proposal.mc_board_id:
+            return
+
+        agent_name = "AgentLoop"
+        if mission.assigned_agent_id:
+            agent = session.get(Agent, mission.assigned_agent_id)
+            if agent:
+                agent_name = agent.name
+
+        try:
+            report_agent_activity(
+                proposal.mc_board_id,
+                proposal.mc_task_id,
+                agent_name,
+                f"Mission completed: {mission.title}",
+            )
+            update_task_status(
+                proposal.mc_board_id,
+                proposal.mc_task_id,
+                "review",
+                comment=f"Completed by {agent_name} via AgentLoop.",
+            )
+        except Exception as e:
+            logger.warning("MC outbound report failed for mission %s: %s", mission.id, e)
+
+    def _sync_mission_control(self, session: Session) -> None:
+        """Sync tasks from Mission Control into proposals (inbound only).
+
+        The full bidirectional endpoint lives at ``/api/v1/simulation/sync-mc``.
+        This light version runs each orchestrator tick to pull new tasks.
+        """
+        from ..integrations.mission_control import (
+            BOARD_PROJECT_MAP, sync_tasks_for_project,
+        )
+        from ..models import AgentStatus, ProposalPriority, ProposalStatus, Project
+
+        if not BOARD_PROJECT_MAP:
+            return
+
+        for board_id, project_slug in BOARD_PROJECT_MAP.items():
+            try:
+                project = session.exec(
+                    select(Project).where(Project.slug == project_slug)
+                ).first()
+                if not project:
+                    continue
+
+                default_agent = session.exec(
+                    select(Agent)
+                    .where(Agent.project_id == project.id)
+                    .where(Agent.status == AgentStatus.ACTIVE)
+                ).first()
+                if not default_agent:
+                    continue
+
+                tasks = sync_tasks_for_project(board_id)
+                for task in tasks:
+                    mc_task_id = task.get("id", "")
+                    if not mc_task_id:
+                        continue
+
+                    existing = session.exec(
+                        select(Proposal).where(Proposal.mc_task_id == mc_task_id)
+                    ).first()
+                    if existing:
+                        continue
+
+                    mc_priority = task.get("priority", "medium").lower()
+                    priority_map = {
+                        "critical": ProposalPriority.CRITICAL,
+                        "high": ProposalPriority.HIGH,
+                        "medium": ProposalPriority.MEDIUM,
+                        "low": ProposalPriority.LOW,
+                    }
+                    priority = priority_map.get(mc_priority, ProposalPriority.MEDIUM)
+
+                    proposal = Proposal(
+                        agent_id=default_agent.id,
+                        project_id=project.id,
+                        title=task.get("title", "Untitled MC Task"),
+                        description=task.get("description", ""),
+                        rationale=f"Synced from Mission Control task {mc_task_id}",
+                        priority=priority,
+                        status=ProposalStatus.PENDING,
+                        auto_approve=priority in (ProposalPriority.CRITICAL, ProposalPriority.HIGH),
+                        mc_task_id=mc_task_id,
+                        mc_board_id=board_id,
+                    )
+                    session.add(proposal)
+
+                session.commit()
+            except Exception as e:
+                logger.warning("MC sync for board %s failed: %s", board_id, e)
+
     def _cleanup_old_data(self, session: Session) -> int:
         """Clean up old events and expired proposals."""
         actions = 0
