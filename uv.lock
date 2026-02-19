@@ -20,6 +20,7 @@ dependencies = [
     { name = "sqlmodel" },
     { name = "uuid7" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -53,6 +54,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.14" },
     { name = "uuid7", specifier = ">=0.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
+    { name = "websockets", specifier = ">=13.0" },
 ]
 provides-extras = ["dev"]
 
