@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Application, Container, Graphics, Text, TextStyle } from "pixi.js";
 import type { AgentState } from "@/lib/types";
 import { ROLE_COLORS, ROLE_EMOJI } from "@/lib/types";
@@ -13,6 +13,10 @@ interface Props {
 
 const TILE_W = 64;
 const TILE_H = 32;
+const GRID = 10;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 2.5;
+const FONT = "'Fira Code', 'SF Mono', monospace";
 
 function toIso(x: number, y: number): [number, number] {
   return [(x - y) * (TILE_W / 2), (x + y) * (TILE_H / 2)];
@@ -21,19 +25,31 @@ function hexToNum(hex: string): number {
   return parseInt(hex.replace("#", ""), 16);
 }
 
+// Safely destroy all children of a container
+function clearContainer(c: Container) {
+  while (c.children.length > 0) {
+    const child = c.children[0];
+    c.removeChild(child);
+    child.destroy({ children: true });
+  }
+}
+
 // ─── Particles ───
-interface Particle { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: number; alpha: number; }
+interface Particle {
+  x: number; y: number; vx: number; vy: number;
+  life: number; maxLife: number; size: number; color: number; alpha: number;
+}
 
 function spawnParticles(pool: Particle[], count: number, bounds: { w: number; h: number }) {
   for (let i = 0; i < count; i++) {
     pool.push({
       x: (Math.random() - 0.5) * bounds.w,
       y: (Math.random() - 0.5) * bounds.h,
-      vx: (Math.random() - 0.5) * 0.15,
-      vy: -Math.random() * 0.2 - 0.05,
+      vx: (Math.random() - 0.5) * 0.1,
+      vy: -Math.random() * 0.15 - 0.03,
       life: Math.random() * 300,
       maxLife: 300 + Math.random() * 200,
-      size: Math.random() * 2 + 0.5,
+      size: Math.random() * 1.5 + 0.3,
       color: [0x60a5fa, 0x4ade80, 0xa78bfa, 0xfbbf24, 0xffffff][Math.floor(Math.random() * 5)],
       alpha: 0,
     });
@@ -42,12 +58,11 @@ function spawnParticles(pool: Particle[], count: number, bounds: { w: number; h:
 
 function tickParticles(pool: Particle[], g: Graphics, bounds: { w: number; h: number }) {
   g.clear();
-  for (let i = pool.length - 1; i >= 0; i--) {
-    const p = pool[i];
+  for (const p of pool) {
     p.x += p.vx; p.y += p.vy; p.life++;
     const progress = p.life / p.maxLife;
     p.alpha = progress < 0.1 ? progress * 10 : progress > 0.8 ? (1 - progress) * 5 : 1;
-    p.alpha *= 0.35;
+    p.alpha *= 0.25;
     if (p.life > p.maxLife) {
       p.x = (Math.random() - 0.5) * bounds.w;
       p.y = (Math.random() - 0.5) * bounds.h + bounds.h * 0.3;
@@ -58,464 +73,524 @@ function tickParticles(pool: Particle[], g: Graphics, bounds: { w: number; h: nu
   }
 }
 
-// ─── Floor ───
+// ─── Floor (static — drawn once) ───
 function drawFloor(g: Graphics, cols: number, rows: number) {
   for (let x = 0; x < cols; x++) {
     for (let y = 0; y < rows; y++) {
       const [ix, iy] = toIso(x, y);
       const isDark = (x + y) % 2 === 0;
-      // Gradient-ish per tile
-      const base = isDark ? 0x1a2538 : 0x1f2d42;
+      const base = isDark ? 0x1e2d42 : 0x243348;
       const edgeDist = Math.min(x, y, cols - 1 - x, rows - 1 - y);
-      const brighten = Math.max(0, 3 - edgeDist) * 0x050505;
+      const darken = Math.max(0, 2 - edgeDist) * 0x030303;
       g.poly([
         { x: ix, y: iy }, { x: ix + TILE_W / 2, y: iy + TILE_H / 2 },
         { x: ix, y: iy + TILE_H }, { x: ix - TILE_W / 2, y: iy + TILE_H / 2 },
       ]);
-      g.fill({ color: base + brighten, alpha: 0.92 });
+      g.fill({ color: Math.max(0, base - darken), alpha: 0.92 });
       g.poly([
         { x: ix, y: iy }, { x: ix + TILE_W / 2, y: iy + TILE_H / 2 },
         { x: ix, y: iy + TILE_H }, { x: ix - TILE_W / 2, y: iy + TILE_H / 2 },
       ]);
-      g.stroke({ color: 0x2e4060, width: 0.4, alpha: 0.25 });
+      g.stroke({ color: 0x2e4060, width: 0.3, alpha: 0.2 });
     }
   }
-  // Floor reflection shine
   const [cx, cy] = toIso(cols / 2, rows / 2);
-  g.ellipse(cx, cy, 80, 40);
-  g.fill({ color: 0xffffff, alpha: 0.018 });
+  g.ellipse(cx, cy, 100, 50);
+  g.fill({ color: 0xffffff, alpha: 0.012 });
 }
 
-// ─── Carpet/Rug ───
+// ─── Rug (static) ───
 function drawRug(g: Graphics) {
-  const [cx, cy] = toIso(4, 4);
+  const [cx, cy] = toIso(5, 5);
   for (let r = 3; r > 0; r--) {
     const colors = [0x1e3a5f, 0x162d4d, 0x0f2240];
-    g.ellipse(cx, cy, r * 28, r * 14);
-    g.fill({ color: colors[3 - r], alpha: 0.5 });
+    g.ellipse(cx, cy, r * 32, r * 16);
+    g.fill({ color: colors[3 - r], alpha: 0.45 });
   }
-  // Rug border pattern
-  for (let i = 0; i < 24; i++) {
-    const angle = (i / 24) * Math.PI * 2;
-    const dx = Math.cos(angle) * 78;
-    const dy = Math.sin(angle) * 39;
-    g.circle(cx + dx, cy + dy, 1.5);
-    g.fill({ color: 0x3b82f6, alpha: 0.3 });
+  for (let i = 0; i < 32; i++) {
+    const angle = (i / 32) * Math.PI * 2;
+    g.circle(cx + Math.cos(angle) * 90, cy + Math.sin(angle) * 45, 1.2);
+    g.fill({ color: 0x3b82f6, alpha: 0.25 });
+  }
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    g.circle(cx + Math.cos(angle) * 50, cy + Math.sin(angle) * 25, 1);
+    g.fill({ color: 0xa78bfa, alpha: 0.15 });
   }
 }
 
-// ─── Walls ───
+// ─── Walls (static) ───
 function drawWalls(g: Graphics, cols: number) {
   const [lx, ly] = toIso(0, 0);
   const [rx, ry] = toIso(cols, 0);
   const [brx, bry] = toIso(cols, cols);
-  const H = 90;
+  const H = 110;
 
   // Back wall
   g.poly([{ x: lx, y: ly - H }, { x: rx, y: ry - H }, { x: rx, y: ry }, { x: lx, y: ly }]);
   g.fill({ color: 0x243348 });
   g.stroke({ color: 0x2e4462, width: 1 });
-  // Wall panel lines
-  for (let i = 1; i < 4; i++) {
-    const px = lx + (rx - lx) * (i / 4);
-    const py = ly + (ry - ly) * (i / 4);
-    g.moveTo(px, py - H); g.lineTo(px, py);
-    g.stroke({ color: 0x2a3f5a, width: 0.5, alpha: 0.5 });
+  // Wainscoting
+  const panelH = 30;
+  g.poly([{ x: lx, y: ly - panelH }, { x: rx, y: ry - panelH }, { x: rx, y: ry }, { x: lx, y: ly }]);
+  g.fill({ color: 0x1e2d42, alpha: 0.6 });
+  for (let i = 0; i <= 5; i++) {
+    const px = lx + (rx - lx) * (i / 5);
+    const py = ly + (ry - ly) * (i / 5);
+    g.moveTo(px, py - panelH); g.lineTo(px, py);
+    g.stroke({ color: 0x2a3f5a, width: 0.5, alpha: 0.4 });
   }
+  // Crown molding
+  g.poly([{ x: lx, y: ly - H }, { x: rx, y: ry - H }, { x: rx, y: ry - H + 4 }, { x: lx, y: ly - H + 4 }]);
+  g.fill({ color: 0x2e4462, alpha: 0.8 });
   // Baseboard
-  g.poly([{ x: lx, y: ly - 6 }, { x: rx, y: ry - 6 }, { x: rx, y: ry }, { x: lx, y: ly }]);
-  g.fill({ color: 0x1a2840, alpha: 0.8 });
+  g.poly([{ x: lx, y: ly - 5 }, { x: rx, y: ry - 5 }, { x: rx, y: ry }, { x: lx, y: ly }]);
+  g.fill({ color: 0x1a2840, alpha: 0.9 });
 
   // Right wall
   g.poly([{ x: rx, y: ry - H }, { x: brx, y: bry - H }, { x: brx, y: bry }, { x: rx, y: ry }]);
   g.fill({ color: 0x1c2b3e });
   g.stroke({ color: 0x253a52, width: 1 });
-  for (let i = 1; i < 4; i++) {
-    const px = rx + (brx - rx) * (i / 4);
-    const py = ry + (bry - ry) * (i / 4);
-    g.moveTo(px, py - H); g.lineTo(px, py);
-    g.stroke({ color: 0x223550, width: 0.5, alpha: 0.5 });
+  g.poly([{ x: rx, y: ry - panelH }, { x: brx, y: bry - panelH }, { x: brx, y: bry }, { x: rx, y: ry }]);
+  g.fill({ color: 0x182738, alpha: 0.6 });
+  for (let i = 0; i <= 5; i++) {
+    const px = rx + (brx - rx) * (i / 5);
+    const py = ry + (bry - ry) * (i / 5);
+    g.moveTo(px, py - panelH); g.lineTo(px, py);
+    g.stroke({ color: 0x223550, width: 0.5, alpha: 0.4 });
   }
-  g.poly([{ x: rx, y: ry - 6 }, { x: brx, y: bry - 6 }, { x: brx, y: bry }, { x: rx, y: ry }]);
-  g.fill({ color: 0x152236, alpha: 0.8 });
-
-  // Corner edge highlight
+  g.poly([{ x: rx, y: ry - H }, { x: brx, y: bry - H }, { x: brx, y: bry - H + 4 }, { x: rx, y: ry - H + 4 }]);
+  g.fill({ color: 0x253a52, alpha: 0.8 });
+  g.poly([{ x: rx, y: ry - 5 }, { x: brx, y: bry - 5 }, { x: brx, y: bry }, { x: rx, y: ry }]);
+  g.fill({ color: 0x152236, alpha: 0.9 });
+  // Corner highlight
   g.moveTo(rx, ry - H); g.lineTo(rx, ry);
-  g.stroke({ color: 0x3a5575, width: 1.5 });
+  g.stroke({ color: 0x3a5575, width: 2 });
 }
 
-// ─── Window ───
-function drawWindow(container: Container, cols: number, t: number) {
+// ─── Window (animated — reuses a single Graphics) ───
+function drawWindow(g: Graphics, cols: number, t: number) {
   const [lx, ly] = toIso(0, 0);
   const [rx, ry] = toIso(cols, 0);
-  const H = 90;
-  const wx = (lx + rx) / 2;
-  const wy = (ly + ry) / 2 - H + 18;
-  const g = new Graphics();
+  const H = 110;
+  const wx = lx + (rx - lx) * 0.5;
+  const wy = ly + (ry - ly) * 0.5 - H + 22;
+
   // Frame
-  g.roundRect(wx - 50, wy, 100, 50, 3);
+  g.roundRect(wx - 60, wy, 120, 60, 3);
   g.fill({ color: 0x0c1829 });
-  g.stroke({ color: 0x4a6480, width: 2.5 });
-  // Sky gradient (animated)
-  const skyShift = Math.sin(t / 2000) * 0.1;
-  g.roundRect(wx - 46, wy + 4, 92, 42, 2);
-  g.fill({ color: 0x0f2557, alpha: 0.9 });
-  // Stars through window
-  for (let i = 0; i < 8; i++) {
-    const sx = wx - 40 + Math.sin(i * 2.7 + t / 5000) * 36 + 36;
-    const sy = wy + 8 + Math.cos(i * 1.9 + t / 4000) * 16 + 16;
-    const twinkle = (Math.sin(t / 300 + i * 1.3) + 1) / 2;
-    g.circle(sx, sy, 1 + twinkle * 0.5);
-    g.fill({ color: 0xffffff, alpha: 0.3 + twinkle * 0.5 });
+  g.stroke({ color: 0x4a6480, width: 3 });
+  // Sky
+  g.roundRect(wx - 56, wy + 4, 112, 52, 2);
+  g.fill({ color: 0x0f1d3a, alpha: 0.95 });
+  g.roundRect(wx - 56, wy + 34, 112, 22, 2);
+  g.fill({ color: 0x1a2d55, alpha: 0.4 });
+  // Stars
+  for (let i = 0; i < 12; i++) {
+    const sx = wx - 48 + ((i * 37 + 13) % 96);
+    const sy = wy + 8 + ((i * 23 + 7) % 40);
+    const twinkle = (Math.sin(t / 400 + i * 1.7) + 1) / 2;
+    g.circle(sx, sy, 0.8 + twinkle * 0.5);
+    g.fill({ color: 0xffffff, alpha: 0.25 + twinkle * 0.55 });
   }
   // Moon
-  g.circle(wx + 25, wy + 14, 8);
-  g.fill({ color: 0xe2e8f0, alpha: 0.6 + Math.sin(t / 3000) * 0.1 });
-  g.circle(wx + 27, wy + 12, 6);
-  g.fill({ color: 0x0f2557 }); // crescent cut
-  // Window cross
-  g.moveTo(wx, wy); g.lineTo(wx, wy + 50);
-  g.stroke({ color: 0x4a6480, width: 1.5 });
-  g.moveTo(wx - 50, wy + 25); g.lineTo(wx + 50, wy + 25);
-  g.stroke({ color: 0x4a6480, width: 1.5 });
-  // Window light cone on floor
-  const fg = new Graphics();
-  const [flx, fly] = toIso(2.5, 2.5);
-  fg.ellipse(flx, fly, 50, 25);
-  fg.fill({ color: 0x3b82f6, alpha: 0.025 + Math.sin(t / 4000) * 0.008 });
-  container.addChild(fg);
-  container.addChild(g);
+  g.circle(wx + 30, wy + 16, 10);
+  g.fill({ color: 0xe2e8f0, alpha: 0.65 + Math.sin(t / 3000) * 0.1 });
+  g.circle(wx + 33, wy + 14, 8);
+  g.fill({ color: 0x0f1d3a });
+  // Cityscape
+  const buildings = [
+    { x: -44, w: 12, h: 20 }, { x: -30, w: 8, h: 28 }, { x: -20, w: 14, h: 18 },
+    { x: -4, w: 10, h: 32 }, { x: 8, w: 16, h: 22 }, { x: 26, w: 10, h: 26 },
+    { x: 38, w: 12, h: 16 },
+  ];
+  for (const b of buildings) {
+    g.rect(wx + b.x, wy + 56 - b.h, b.w, b.h);
+    g.fill({ color: 0x0a1525, alpha: 0.9 });
+    for (let wy2 = 0; wy2 < b.h - 6; wy2 += 5) {
+      for (let wx2 = 2; wx2 < b.w - 3; wx2 += 4) {
+        if (Math.sin(t / 2000 + b.x + wy2 + wx2) > 0.2) {
+          g.rect(wx + b.x + wx2, wy + 56 - b.h + wy2 + 2, 2, 3);
+          g.fill({ color: 0xfbbf24, alpha: 0.5 });
+        }
+      }
+    }
+  }
+  // Cross bars
+  g.moveTo(wx, wy); g.lineTo(wx, wy + 60);
+  g.stroke({ color: 0x4a6480, width: 2 });
+  g.moveTo(wx - 60, wy + 30); g.lineTo(wx + 60, wy + 30);
+  g.stroke({ color: 0x4a6480, width: 2 });
+  // Sill
+  g.roundRect(wx - 64, wy + 58, 128, 6, 1);
+  g.fill({ color: 0x2e4462 });
+  // Light cone on floor
+  const [flx, fly] = toIso(3, 3);
+  g.ellipse(flx, fly, 60, 30);
+  g.fill({ color: 0x3b82f6, alpha: 0.02 + Math.sin(t / 4000) * 0.006 });
 }
 
-// ─── Poster/Art on wall ───
-function drawWallArt(container: Container, cols: number) {
+// ─── Ceiling lights (animated) ───
+function drawCeilingLights(g: Graphics, t: number) {
+  const lightPositions: [number, number][] = [[3, 3], [7, 3], [3, 7], [7, 7]];
+  for (const [lx, ly] of lightPositions) {
+    const [ix, iy] = toIso(lx, ly);
+    g.moveTo(ix, iy - 120); g.lineTo(ix, iy - 90);
+    g.stroke({ color: 0x475569, width: 1 });
+    g.poly([
+      { x: ix - 12, y: iy - 90 }, { x: ix + 12, y: iy - 90 },
+      { x: ix + 8, y: iy - 96 }, { x: ix - 8, y: iy - 96 },
+    ]);
+    g.fill({ color: 0x334155 });
+    g.circle(ix, iy - 88, 3);
+    g.fill({ color: 0xfef3c7, alpha: 0.9 });
+    const flicker = Math.sin(t / 1500 + lx * 2) * 0.005;
+    g.ellipse(ix, iy, 40, 20);
+    g.fill({ color: 0xfef3c7, alpha: 0.025 + flicker });
+    g.ellipse(ix, iy, 24, 12);
+    g.fill({ color: 0xfef3c7, alpha: 0.02 + flicker });
+  }
+}
+
+// ─── Wall art (animated clock) ───
+function drawWallArt(g: Graphics, cols: number) {
+  const [lx, ly] = toIso(0, 0);
   const [rx, ry] = toIso(cols, 0);
   const [brx, bry] = toIso(cols, cols);
-  const g = new Graphics();
+
+  // Clock
+  const cx = lx + (rx - lx) * 0.15;
+  const cy = ly + (ry - ly) * 0.15 - 80;
+  g.circle(cx, cy, 14);
+  g.fill({ color: 0x1e293b });
+  g.stroke({ color: 0x64748b, width: 2 });
+  g.circle(cx, cy, 12);
+  g.fill({ color: 0xf0f0f0, alpha: 0.92 });
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    const r1 = i % 3 === 0 ? 8 : 9.5;
+    g.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+    g.lineTo(cx + Math.cos(a) * 11, cy + Math.sin(a) * 11);
+    g.stroke({ color: 0x333333, width: i % 3 === 0 ? 1.5 : 0.5 });
+  }
+  const now = new Date();
+  const hAngle = ((now.getHours() % 12 + now.getMinutes() / 60) / 12) * Math.PI * 2 - Math.PI / 2;
+  const mAngle = (now.getMinutes() / 60) * Math.PI * 2 - Math.PI / 2;
+  g.moveTo(cx, cy); g.lineTo(cx + Math.cos(hAngle) * 5, cy + Math.sin(hAngle) * 5);
+  g.stroke({ color: 0x1a1a1a, width: 2 });
+  g.moveTo(cx, cy); g.lineTo(cx + Math.cos(mAngle) * 8, cy + Math.sin(mAngle) * 8);
+  g.stroke({ color: 0x333333, width: 1.2 });
+  g.circle(cx, cy, 1.5);
+  g.fill({ color: 0xe94560 });
+
   // Poster on right wall
   const px = rx + (brx - rx) * 0.35;
-  const py = ry + (bry - ry) * 0.35 - 60;
-  g.roundRect(px - 14, py, 28, 22, 1);
+  const py = ry + (bry - ry) * 0.35 - 72;
+  g.roundRect(px - 18, py, 36, 28, 2);
   g.fill({ color: 0x1a1a2e });
-  g.stroke({ color: 0x64748b, width: 1 });
-  // Poster art (mini bar chart)
-  for (let i = 0; i < 4; i++) {
-    const bh = 4 + Math.random() * 10;
-    g.rect(px - 10 + i * 6, py + 18 - bh, 4, bh);
-    g.fill({ color: [0xe94560, 0x60a5fa, 0x4ade80, 0xfbbf24][i], alpha: 0.8 });
+  g.stroke({ color: 0x64748b, width: 1.5 });
+  for (let i = 0; i < 5; i++) {
+    const bh = 5 + ((i * 7 + 3) % 10);
+    g.rect(px - 14 + i * 6, py + 24 - bh, 4, bh);
+    g.fill({ color: [0xe94560, 0x60a5fa, 0x4ade80, 0xfbbf24, 0xa78bfa][i], alpha: 0.75 });
   }
-  container.addChild(g);
 
-  // Clock on back wall
-  const [lx, ly] = toIso(0, 0);
-  const cx = lx + (rx - lx) * 0.15;
-  const cy = ly + (ry - ly) * 0.15 - 70;
-  const cg = new Graphics();
-  cg.circle(cx, cy, 12);
-  cg.fill({ color: 0x1e293b });
-  cg.stroke({ color: 0x64748b, width: 1.5 });
-  cg.circle(cx, cy, 10);
-  cg.fill({ color: 0xf0f0f0, alpha: 0.9 });
-  // Clock hands
-  const now = new Date();
-  const hAngle = ((now.getHours() % 12) / 12) * Math.PI * 2 - Math.PI / 2;
-  const mAngle = (now.getMinutes() / 60) * Math.PI * 2 - Math.PI / 2;
-  cg.moveTo(cx, cy);
-  cg.lineTo(cx + Math.cos(hAngle) * 5, cy + Math.sin(hAngle) * 5);
-  cg.stroke({ color: 0x333333, width: 1.5 });
-  cg.moveTo(cx, cy);
-  cg.lineTo(cx + Math.cos(mAngle) * 7, cy + Math.sin(mAngle) * 7);
-  cg.stroke({ color: 0x666666, width: 1 });
-  cg.circle(cx, cy, 1.5);
-  cg.fill({ color: 0xe94560 });
-  container.addChild(cg);
+  // Logo on right wall
+  const p2x = rx + (brx - rx) * 0.65;
+  const p2y = ry + (bry - ry) * 0.65 - 72;
+  g.roundRect(p2x - 16, p2y, 32, 24, 2);
+  g.fill({ color: 0x0f172a });
+  g.stroke({ color: 0x475569, width: 1 });
+  g.circle(p2x, p2y + 12, 8);
+  g.stroke({ color: 0x3b82f6, width: 1.5 });
+  g.circle(p2x, p2y + 12, 4);
+  g.fill({ color: 0x3b82f6, alpha: 0.3 });
+
+  // Neon sign on back wall
+  const atx = lx + (rx - lx) * 0.75;
+  const aty = ly + (ry - ly) * 0.75 - 80;
+  g.roundRect(atx - 30, aty, 60, 16, 2);
+  g.fill({ color: 0x0f172a, alpha: 0.6 });
+  g.stroke({ color: 0x3b82f6, width: 1, alpha: 0.4 });
+
+  // Door on right wall
+  const dx = rx + (brx - rx) * 0.88;
+  const dy = ry + (bry - ry) * 0.88;
+  g.roundRect(dx - 14, dy - 60, 28, 60, 1);
+  g.fill({ color: 0x1a2840 });
+  g.stroke({ color: 0x334155, width: 2 });
+  g.roundRect(dx - 12, dy - 58, 24, 56, 1);
+  g.fill({ color: 0x2a3f5a });
+  g.circle(dx + 7, dy - 30, 2.5);
+  g.fill({ color: 0xd4a45a });
+  g.roundRect(dx - 9, dy - 54, 18, 22, 1);
+  g.stroke({ color: 0x334155, width: 0.8 });
+  g.roundRect(dx - 9, dy - 28, 18, 22, 1);
+  g.stroke({ color: 0x334155, width: 0.8 });
+  // EXIT sign
+  g.roundRect(dx - 10, dy - 68, 20, 6, 1);
+  g.fill({ color: 0x22c55e, alpha: 0.8 });
 }
 
-// ─── Desk ───
-function drawDesk(container: Container, gx: number, gy: number, color: number, label: string, t: number) {
+// ─── Desk (uses single Graphics, no Text per frame) ───
+function drawDesk(g: Graphics, gx: number, gy: number, color: number, t: number) {
   const [ix, iy] = toIso(gx, gy);
-  const g = new Graphics();
-  const dw = 52, dh = 26;
+  const dw = 56, dh = 28;
 
-  // Desk shadow
-  g.ellipse(ix, iy + 4, 28, 10);
-  g.fill({ color: 0x000000, alpha: 0.15 });
-
-  // Desk legs
-  for (const [ox, oy] of [[-dw/2+4, dh/2-2], [dw/2-4, dh/2-2], [-dw/2+4, -dh/2+2], [dw/2-4, -dh/2+2]]) {
+  // Shadow
+  g.ellipse(ix, iy + 4, 30, 12);
+  g.fill({ color: 0x000000, alpha: 0.18 });
+  // Legs
+  for (const [ox, oy] of [[-dw / 2 + 5, dh / 2 - 3], [dw / 2 - 5, dh / 2 - 3], [-dw / 2 + 5, -dh / 2 + 3], [dw / 2 - 5, -dh / 2 + 3]]) {
     g.rect(ix + ox - 1.5, iy - 16 + oy, 3, 16);
     g.fill({ color: 0x5a3e10, alpha: 0.7 });
   }
-
-  // Desk top
+  // Top
   g.poly([
     { x: ix, y: iy - 18 }, { x: ix + dw / 2, y: iy - 18 + dh / 2 },
     { x: ix, y: iy - 18 + dh }, { x: ix - dw / 2, y: iy - 18 + dh / 2 },
   ]);
   g.fill({ color: 0xb8860b });
   g.stroke({ color: 0x8b6914, width: 1 });
-  // Wood grain
   for (let i = 0; i < 3; i++) {
     const gy2 = iy - 18 + dh / 2 - 6 + i * 4;
     g.moveTo(ix - dw / 4, gy2); g.lineTo(ix + dw / 4, gy2);
-    g.stroke({ color: 0xa67c00, width: 0.5, alpha: 0.3 });
+    g.stroke({ color: 0xa67c00, width: 0.5, alpha: 0.25 });
   }
-
   // Front face
   g.poly([
     { x: ix - dw / 2, y: iy - 18 + dh / 2 }, { x: ix, y: iy - 18 + dh },
-    { x: ix, y: iy - 4 }, { x: ix - dw / 2, y: iy - 4 - dh / 2 + dh / 2 },
+    { x: ix, y: iy - 4 }, { x: ix - dw / 2, y: iy + 10 },
   ]);
-  g.fill({ color: 0x8b6914, alpha: 0.6 });
-
+  g.fill({ color: 0x8b6914, alpha: 0.5 });
   // Monitor
-  g.roundRect(ix - 10, iy - 40, 20, 16, 2);
+  g.roundRect(ix - 12, iy - 42, 24, 18, 2);
   g.fill({ color: 0x0f172a });
   g.stroke({ color: 0x334155, width: 1.5 });
-  // Screen content (animated)
-  const screenFlicker = Math.sin(t / 200) * 0.05;
-  g.roundRect(ix - 8, iy - 38, 16, 12, 1);
-  g.fill({ color, alpha: 0.15 + screenFlicker });
-  // Code lines on screen
-  for (let i = 0; i < 4; i++) {
-    const lw = 4 + Math.sin(t / 500 + i) * 3 + 3;
-    g.rect(ix - 6, iy - 36 + i * 3, lw, 1.5);
-    g.fill({ color, alpha: 0.5 + Math.sin(t / 300 + i) * 0.2 });
+  const flicker = Math.sin(t / 200) * 0.04;
+  g.roundRect(ix - 10, iy - 40, 20, 14, 1);
+  g.fill({ color, alpha: 0.12 + flicker });
+  for (let i = 0; i < 5; i++) {
+    const lw = 3 + Math.sin(t / 600 + i * 1.3) * 3 + 4;
+    g.rect(ix - 8, iy - 38 + i * 2.8, lw, 1.2);
+    g.fill({ color, alpha: 0.45 + Math.sin(t / 400 + i) * 0.15 });
   }
-  // Monitor stand
+  // Stand
   g.rect(ix - 2, iy - 24, 4, 5);
   g.fill({ color: 0x334155 });
-  g.rect(ix - 5, iy - 19, 10, 2);
+  g.rect(ix - 6, iy - 19, 12, 2);
   g.fill({ color: 0x334155 });
-
   // Keyboard
-  g.roundRect(ix - 8, iy - 15, 16, 5, 1);
-  g.fill({ color: 0x1e293b, alpha: 0.8 });
+  g.roundRect(ix - 9, iy - 15, 18, 6, 1);
+  g.fill({ color: 0x1e293b, alpha: 0.85 });
   g.stroke({ color: 0x334155, width: 0.5 });
-
+  // Mouse
+  g.ellipse(ix + 14, iy - 14, 2.5, 3.5);
+  g.fill({ color: 0x1e293b });
   // Coffee mug
-  g.roundRect(ix + 14, iy - 18, 6, 7, 1);
-  g.fill({ color: 0xffffff, alpha: 0.8 });
-  g.stroke({ color: 0xcccccc, width: 0.5 });
-  // Mug handle
-  g.arc(ix + 20, iy - 15, 3, -Math.PI / 2, Math.PI / 2, false);
+  g.roundRect(ix - 18, iy - 20, 6, 7, 1);
+  g.fill({ color: 0xffffff, alpha: 0.85 });
+  g.arc(ix - 12, iy - 17, 3, -Math.PI / 2, Math.PI / 2, false);
   g.stroke({ color: 0xcccccc, width: 1 });
-  // Steam from mug
+  // Steam
   for (let i = 0; i < 2; i++) {
-    const sy = iy - 22 - Math.sin(t / 400 + i * 2) * 4;
-    g.circle(ix + 16 + i * 3, sy, 1.5);
-    g.fill({ color: 0xffffff, alpha: 0.12 - i * 0.04 });
+    const sy = iy - 24 - Math.sin(t / 400 + i * 2) * 4;
+    g.circle(ix - 16 + i * 3, sy, 1.5);
+    g.fill({ color: 0xffffff, alpha: 0.1 - i * 0.03 });
   }
-
-  container.addChild(g);
-
-  // Label
-  const text = new Text({
-    text: label,
-    style: new TextStyle({ fontFamily: "monospace", fontSize: 7, fill: 0x6b7fa0 }),
-  });
-  text.anchor.set(0.5, 0); text.x = ix; text.y = iy + 6;
-  container.addChild(text);
-
   // Desk lamp
-  const lg = new Graphics();
-  lg.rect(ix - dw / 2 - 2, iy - 28, 2, 12);
-  lg.fill({ color: 0x475569 });
-  lg.ellipse(ix - dw / 2 + 2, iy - 30, 6, 3);
-  lg.fill({ color: 0xfbbf24, alpha: 0.7 });
-  // Lamp light cone
-  lg.ellipse(ix - dw / 2, iy - 18, 10, 4);
-  lg.fill({ color: 0xfbbf24, alpha: 0.06 });
-  container.addChild(lg);
+  g.rect(ix + dw / 2 - 2, iy - 30, 2, 14);
+  g.fill({ color: 0x475569 });
+  g.ellipse(ix + dw / 2 + 2, iy - 32, 7, 3);
+  g.fill({ color: 0xfbbf24, alpha: 0.65 });
+  g.ellipse(ix + dw / 2, iy - 18, 12, 5);
+  g.fill({ color: 0xfbbf24, alpha: 0.04 });
 }
 
-// ─── Furniture ───
-function drawFurniture(container: Container, t: number) {
-  // Bookshelf on right wall
-  const bg = new Graphics();
-  const [bsx, bsy] = toIso(8, 2);
-  bg.roundRect(bsx - 12, bsy - 40, 24, 40, 2);
-  bg.fill({ color: 0x5a3e10 });
-  bg.stroke({ color: 0x4a2e08, width: 1 });
-  // Shelves
-  for (let s = 0; s < 3; s++) {
-    bg.rect(bsx - 10, bsy - 36 + s * 12, 20, 2);
-    bg.fill({ color: 0x6b4f12 });
-    // Books
-    for (let b = 0; b < 4; b++) {
-      const bw = 3 + Math.random() * 2;
-      const bh = 6 + Math.random() * 4;
-      const bc = [0xe94560, 0x3b82f6, 0x4ade80, 0xfbbf24, 0xa78bfa][Math.floor(Math.random() * 5)];
-      bg.rect(bsx - 8 + b * 5, bsy - 34 + s * 12 - bh, bw, bh);
-      bg.fill({ color: bc, alpha: 0.7 });
+// ─── Furniture (static parts + animated LEDs) ───
+function drawFurniture(g: Graphics, t: number) {
+  // ── Bookshelf ──
+  const [bsx, bsy] = toIso(9.5, 2);
+  g.roundRect(bsx - 14, bsy - 48, 28, 48, 2);
+  g.fill({ color: 0x5a3e10 });
+  g.stroke({ color: 0x4a2e08, width: 1 });
+  for (let s = 0; s < 4; s++) {
+    g.rect(bsx - 12, bsy - 44 + s * 11, 24, 2);
+    g.fill({ color: 0x6b4f12 });
+    for (let b = 0; b < 5; b++) {
+      const bw = 2.5 + (b * 7 + s * 3) % 3;
+      const bh = 5 + (b * 11 + s * 5) % 5;
+      const bc = [0xe94560, 0x3b82f6, 0x4ade80, 0xfbbf24, 0xa78bfa][(b + s) % 5];
+      g.rect(bsx - 10 + b * 4.5, bsy - 42 + s * 11 - bh, bw, bh);
+      g.fill({ color: bc, alpha: 0.65 });
     }
   }
-  container.addChild(bg);
 
-  // Coffee machine
-  const cg = new Graphics();
-  const [cmx, cmy] = toIso(7.2, 0.8);
-  // Counter
-  cg.poly([
-    { x: cmx - 16, y: cmy - 12 }, { x: cmx + 16, y: cmy - 12 },
-    { x: cmx + 16, y: cmy + 4 }, { x: cmx - 16, y: cmy + 4 },
+  // ── Coffee machine ──
+  const [cmx, cmy] = toIso(8.5, 0.8);
+  g.poly([
+    { x: cmx - 20, y: cmy - 14 }, { x: cmx + 20, y: cmy - 14 },
+    { x: cmx + 20, y: cmy + 4 }, { x: cmx - 20, y: cmy + 4 },
   ]);
-  cg.fill({ color: 0x2a2a3e });
-  cg.stroke({ color: 0x3a3a50, width: 1 });
-  // Machine body
-  cg.roundRect(cmx - 8, cmy - 28, 16, 18, 2);
-  cg.fill({ color: 0x1e1e30 });
-  cg.stroke({ color: 0x444466, width: 1 });
-  // LED
-  cg.circle(cmx, cmy - 22, 2);
-  cg.fill({ color: 0x4ade80, alpha: 0.6 + Math.sin(t / 500) * 0.3 });
-  // Steam
+  g.fill({ color: 0x2a2a3e });
+  g.roundRect(cmx - 10, cmy - 32, 20, 20, 2);
+  g.fill({ color: 0x1e1e30 });
+  g.stroke({ color: 0x444466, width: 1 });
+  g.roundRect(cmx - 6, cmy - 28, 12, 8, 1);
+  g.fill({ color: 0x0a0a1a });
+  g.circle(cmx + 6, cmy - 14, 2);
+  g.fill({ color: 0x4ade80, alpha: 0.6 + Math.sin(t / 500) * 0.3 });
   for (let i = 0; i < 3; i++) {
     const sx = cmx - 2 + i * 2;
-    const sy = cmy - 32 - Math.sin(t / 300 + i * 1.5) * 5;
-    const sa = 0.15 - i * 0.04;
-    cg.circle(sx, sy, 2 + Math.sin(t / 400 + i) * 0.5);
-    cg.fill({ color: 0xffffff, alpha: sa > 0 ? sa : 0 });
+    const sy = cmy - 36 - Math.sin(t / 300 + i * 1.5) * 5;
+    g.circle(sx, sy, 2);
+    g.fill({ color: 0xffffff, alpha: Math.max(0, 0.12 - i * 0.04) });
   }
-  container.addChild(cg);
 
-  // Server rack
-  const sg = new Graphics();
-  const [srx, sry] = toIso(7.5, 7.2);
-  // Rack body
-  sg.roundRect(srx - 12, sry - 42, 24, 44, 2);
-  sg.fill({ color: 0x0a0f1a });
-  sg.stroke({ color: 0x1e2d42, width: 1.5 });
-  // Server units
-  for (let i = 0; i < 4; i++) {
-    sg.roundRect(srx - 9, sry - 38 + i * 10, 18, 8, 1);
-    sg.fill({ color: 0x111827 });
-    sg.stroke({ color: 0x1f2937, width: 0.5 });
-    // LED
-    const ledState = Math.sin(t / 200 + i * 1.7) > 0;
-    sg.circle(srx - 5, sry - 34 + i * 10, 2);
-    sg.fill({ color: ledState ? 0x4ade80 : 0x1a2e1a });
-    // Activity LED
-    const actLed = Math.sin(t / 80 + i * 3) > 0.5;
-    sg.circle(srx - 1, sry - 34 + i * 10, 1.5);
-    sg.fill({ color: actLed ? 0xfbbf24 : 0x2a2a1a, alpha: actLed ? 0.8 : 0.3 });
-    // Drive bays
-    for (let d = 0; d < 3; d++) {
-      sg.rect(srx + 2 + d * 4, sry - 36 + i * 10, 3, 4);
-      sg.fill({ color: 0x1a2030 });
+  // ── Water cooler ──
+  const [wcx, wcy] = toIso(9.2, 5);
+  g.roundRect(wcx - 8, wcy - 6, 16, 6, 1);
+  g.fill({ color: 0x475569 });
+  g.roundRect(wcx - 6, wcy - 28, 12, 22, 2);
+  g.fill({ color: 0xf0f0f0, alpha: 0.9 });
+  g.stroke({ color: 0xd0d0d0, width: 1 });
+  g.roundRect(wcx - 5, wcy - 44, 10, 18, 3);
+  g.fill({ color: 0x93c5fd, alpha: 0.4 });
+  g.circle(wcx + 3, wcy - 10, 1.5);
+  g.fill({ color: 0x64748b });
+
+  // ── Server rack ──
+  const [srx, sry] = toIso(9, 8);
+  g.roundRect(srx - 14, sry - 50, 28, 52, 2);
+  g.fill({ color: 0x0a0f1a });
+  g.stroke({ color: 0x1e2d42, width: 1.5 });
+  for (let i = 0; i < 5; i++) {
+    g.roundRect(srx - 11, sry - 46 + i * 10, 22, 8, 1);
+    g.fill({ color: 0x111827 });
+    g.stroke({ color: 0x1f2937, width: 0.5 });
+    const led1 = Math.sin(t / 200 + i * 1.7) > 0;
+    g.circle(srx - 7, sry - 42 + i * 10, 2);
+    g.fill({ color: led1 ? 0x4ade80 : 0x1a2e1a });
+    const led2 = Math.sin(t / 80 + i * 3) > 0.5;
+    g.circle(srx - 3, sry - 42 + i * 10, 1.5);
+    g.fill({ color: led2 ? 0xfbbf24 : 0x2a2a1a, alpha: led2 ? 0.8 : 0.3 });
+    for (let d = 0; d < 4; d++) {
+      g.rect(srx + 1 + d * 4, sry - 44 + i * 10, 3, 4);
+      g.fill({ color: 0x1a2030 });
     }
   }
-  // Server glow
-  sg.ellipse(srx, sry + 4, 16, 6);
-  sg.fill({ color: 0x4ade80, alpha: 0.03 });
-  container.addChild(sg);
+  g.ellipse(srx, sry + 4, 18, 8);
+  g.fill({ color: 0x4ade80, alpha: 0.025 });
 
-  // Plants (detailed)
-  for (const [px, py, size] of [[0.3, 7.5, 1.2], [7.8, 0.3, 0.8], [0.3, 0.3, 1.0]] as [number, number, number][]) {
-    const pg = new Graphics();
+  // ── Filing cabinet ──
+  const [fcx, fcy] = toIso(0.5, 5);
+  g.roundRect(fcx - 10, fcy - 34, 20, 34, 2);
+  g.fill({ color: 0x475569 });
+  g.stroke({ color: 0x64748b, width: 1 });
+  for (let d = 0; d < 3; d++) {
+    g.roundRect(fcx - 8, fcy - 30 + d * 10, 16, 8, 1);
+    g.fill({ color: 0x334155 });
+    g.stroke({ color: 0x3f5168, width: 0.5 });
+    g.roundRect(fcx - 3, fcy - 26 + d * 10, 6, 2, 0.5);
+    g.fill({ color: 0x94a3b8 });
+  }
+
+  // ── Coat rack ──
+  const [crx, cry] = toIso(0.3, 8.5);
+  g.ellipse(crx, cry, 8, 4);
+  g.fill({ color: 0x475569, alpha: 0.7 });
+  g.rect(crx - 1.5, cry - 42, 3, 42);
+  g.fill({ color: 0x5a3e10 });
+  for (let h = 0; h < 3; h++) {
+    const angle = (h / 3) * Math.PI * 2 + Math.PI / 6;
+    g.moveTo(crx, cry - 38);
+    g.lineTo(crx + Math.cos(angle) * 10, cry - 38 + Math.sin(angle) * 4);
+    g.stroke({ color: 0x5a3e10, width: 2 });
+  }
+  g.ellipse(crx + 8, cry - 32, 6, 8);
+  g.fill({ color: 0x334155, alpha: 0.8 });
+
+  // ── Plants ──
+  for (const [px, py, size] of [[0.3, 2, 1.1], [9.5, 0.3, 0.85], [0.3, 0.3, 1.0], [5, 9.2, 0.9]] as [number, number, number][]) {
     const [plx, ply] = toIso(px, py);
-    // Pot
-    pg.poly([
+    g.poly([
       { x: plx - 6 * size, y: ply - 4 }, { x: plx + 6 * size, y: ply - 4 },
       { x: plx + 4 * size, y: ply + 6 }, { x: plx - 4 * size, y: ply + 6 },
     ]);
-    pg.fill({ color: 0x8b4513 });
-    pg.stroke({ color: 0x6b3410, width: 1 });
-    // Soil
-    pg.ellipse(plx, ply - 4, 6 * size, 2.5);
-    pg.fill({ color: 0x3e2723 });
-    // Leaves
-    for (let l = 0; l < 5; l++) {
-      const angle = (l / 5) * Math.PI * 2 + Math.sin(t / 1500 + l) * 0.15;
-      const dist = 8 * size + Math.sin(t / 2000 + l * 2) * 1.5;
-      const lx = plx + Math.cos(angle) * dist;
-      const ly2 = ply - 10 * size + Math.sin(angle) * dist * 0.4;
-      pg.ellipse(lx, ly2, 5 * size, 3 * size);
-      pg.fill({ color: l % 2 === 0 ? 0x2d6a2d : 0x3a8a3a, alpha: 0.85 });
+    g.fill({ color: 0x8b4513 });
+    g.stroke({ color: 0x6b3410, width: 1 });
+    g.ellipse(plx, ply - 4, 6 * size, 2.5);
+    g.fill({ color: 0x3e2723 });
+    for (let l = 0; l < 6; l++) {
+      const angle = (l / 6) * Math.PI * 2 + Math.sin(t / 1500 + l) * 0.12;
+      const dist = 8 * size + Math.sin(t / 2000 + l * 2) * 1.2;
+      g.ellipse(plx + Math.cos(angle) * dist, ply - 10 * size + Math.sin(angle) * dist * 0.4, 5 * size, 3 * size);
+      g.fill({ color: l % 2 === 0 ? 0x2d6a2d : 0x3a8a3a, alpha: 0.85 });
     }
-    // Center stem
-    pg.moveTo(plx, ply - 4);
-    pg.lineTo(plx, ply - 14 * size);
-    pg.stroke({ color: 0x2d5a2d, width: 1.5 });
-    container.addChild(pg);
+    g.moveTo(plx, ply - 4); g.lineTo(plx, ply - 14 * size);
+    g.stroke({ color: 0x2d5a2d, width: 1.5 });
   }
 
-  // Whiteboard
-  const wg = new Graphics();
-  const [wx, wy] = toIso(1.5, 0.3);
-  // Frame
-  wg.roundRect(wx - 36, wy - 42, 72, 44, 2);
-  wg.fill({ color: 0xf8f8f8 });
-  wg.stroke({ color: 0x94a3b8, width: 2.5 });
-  // Shadow under frame
-  wg.roundRect(wx - 34, wy - 40, 68, 40, 1);
-  wg.fill({ color: 0xf0f0f0 });
-  // Sticky notes
+  // ── Whiteboard ──
+  const [wx, wy] = toIso(2, 0.3);
+  g.roundRect(wx - 42, wy - 50, 84, 52, 2);
+  g.fill({ color: 0xf8f8f8 });
+  g.stroke({ color: 0x94a3b8, width: 2.5 });
+  g.roundRect(wx - 38, wy - 46, 76, 44, 1);
+  g.fill({ color: 0xf5f5f5 });
   const stickies = [
-    { x: -24, y: -36, w: 14, h: 12, color: 0xfbbf24 },
-    { x: -6, y: -38, w: 14, h: 14, color: 0xf87171 },
-    { x: 12, y: -34, w: 14, h: 12, color: 0x4ade80 },
-    { x: -18, y: -20, w: 14, h: 12, color: 0x60a5fa },
-    { x: 2, y: -22, w: 14, h: 14, color: 0xa78bfa },
-    { x: 22, y: -20, w: 14, h: 12, color: 0xfbbf24 },
+    { x: -30, y: -42, w: 14, h: 12, color: 0xfbbf24 },
+    { x: -12, y: -44, w: 14, h: 14, color: 0xf87171 },
+    { x: 6, y: -40, w: 14, h: 12, color: 0x4ade80 },
+    { x: 24, y: -42, w: 14, h: 12, color: 0x60a5fa },
+    { x: -24, y: -26, w: 14, h: 12, color: 0xa78bfa },
+    { x: -6, y: -28, w: 14, h: 14, color: 0xfbbf24 },
+    { x: 12, y: -24, w: 14, h: 12, color: 0xf87171 },
+    { x: 28, y: -26, w: 14, h: 12, color: 0x4ade80 },
   ];
   for (const s of stickies) {
-    wg.roundRect(wx + s.x, wy + s.y, s.w, s.h, 1);
-    wg.fill({ color: s.color, alpha: 0.85 });
-    // Tiny text lines
+    g.roundRect(wx + s.x, wy + s.y, s.w, s.h, 1);
+    g.fill({ color: s.color, alpha: 0.85 });
     for (let i = 0; i < 2; i++) {
-      wg.rect(wx + s.x + 2, wy + s.y + 3 + i * 3, s.w - 4, 1.5);
-      wg.fill({ color: 0x000000, alpha: 0.15 });
+      g.rect(wx + s.x + 2, wy + s.y + 3 + i * 3, s.w - 4, 1.5);
+      g.fill({ color: 0x000000, alpha: 0.12 });
     }
   }
-  // Sprint title
-  wg.rect(wx - 30, wy - 42, 60, 8);
-  wg.fill({ color: 0xe2e8f0 });
-  container.addChild(wg);
-  const wbText = new Text({
-    text: "SPRINT BOARD",
-    style: new TextStyle({ fontFamily: "monospace", fontSize: 5, fill: 0x64748b, fontWeight: "bold" }),
-  });
-  wbText.anchor.set(0.5, 0.5); wbText.x = wx; wbText.y = wy - 38;
-  container.addChild(wbText);
+  // Tray
+  g.roundRect(wx - 36, wy + 2, 72, 4, 1);
+  g.fill({ color: 0x94a3b8 });
+  for (let i = 0; i < 3; i++) {
+    g.roundRect(wx - 28 + i * 8, wy + 2, 5, 3, 0.5);
+    g.fill({ color: [0xe94560, 0x3b82f6, 0x22c55e][i] });
+  }
 
-  // Meeting table (nicer)
-  const mg = new Graphics();
-  const [mx, my] = toIso(4, 4);
-  // Table shadow
-  mg.ellipse(mx, my + 2, 24, 10);
-  mg.fill({ color: 0x000000, alpha: 0.12 });
-  // Table top
-  mg.ellipse(mx, my - 8, 22, 11);
-  mg.fill({ color: 0xa67c00 });
-  mg.stroke({ color: 0x8b6914, width: 1.5 });
-  mg.ellipse(mx, my - 10, 16, 8);
-  mg.fill({ color: 0xb8860b, alpha: 0.4 }); // highlight
-  // Table leg
-  mg.rect(mx - 2, my - 8, 4, 10);
-  mg.fill({ color: 0x6b4f12 });
-  container.addChild(mg);
-
-  // Chairs around meeting table
-  for (let i = 0; i < 4; i++) {
-    const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const dist = 30;
-    const chairX = mx + Math.cos(angle) * dist;
-    const chairY = my - 4 + Math.sin(angle) * dist * 0.5;
-    const chairG = new Graphics();
-    chairG.circle(chairX, chairY, 5);
-    chairG.fill({ color: 0x334155, alpha: 0.7 });
-    chairG.circle(chairX, chairY - 6, 4);
-    chairG.fill({ color: 0x3a4f6a });
-    container.addChild(chairG);
+  // ── Meeting table ──
+  const [mx, my] = toIso(5, 5);
+  g.ellipse(mx, my + 2, 28, 12);
+  g.fill({ color: 0x000000, alpha: 0.12 });
+  g.ellipse(mx, my - 8, 26, 13);
+  g.fill({ color: 0xa67c00 });
+  g.stroke({ color: 0x8b6914, width: 1.5 });
+  g.ellipse(mx, my - 10, 18, 9);
+  g.fill({ color: 0xb8860b, alpha: 0.35 });
+  g.rect(mx - 2, my - 8, 4, 10);
+  g.fill({ color: 0x6b4f12 });
+  // Chairs
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + Math.PI / 5;
+    const chairX = mx + Math.cos(angle) * 35;
+    const chairY = my - 4 + Math.sin(angle) * 17;
+    g.ellipse(chairX, chairY, 5, 3);
+    g.fill({ color: 0x334155, alpha: 0.75 });
+    g.arc(chairX, chairY - 2, 5, Math.PI + 0.5, -0.5, false);
+    g.fill({ color: 0x3a4f6a, alpha: 0.8 });
   }
 }
 
-// ─── Agent ───
-function drawAgent(container: Container, agent: AgentState, pos: { x: number; y: number }, t: number) {
+// ─── Agent drawing (to a shared Graphics + text container) ───
+function drawAgent(g: Graphics, textContainer: Container, agent: AgentState, pos: { x: number; y: number }, t: number) {
   const [ix, iy] = toIso(pos.x / 60, pos.y / 60);
   const color = hexToNum(ROLE_COLORS[agent.role] ?? ROLE_COLORS.default);
-  const emoji = ROLE_EMOJI[agent.role] ?? "🤖";
   const isWorking = agent.current_action === "working";
   const isWalking = agent.current_action === "walking";
   const isTalking = agent.current_action === "talking";
@@ -524,8 +599,6 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
   const bounce = isWalking ? Math.sin(t / 120) * 4 : 0;
   const breathe = Math.sin(t / 800) * 0.8;
   const idleSway = Math.sin(t / 2000 + pos.x) * 1;
-
-  const g = new Graphics();
   const by = iy - 14 + bounce + breathe;
 
   // Shadow
@@ -538,8 +611,6 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
     const auraSize = 24 + Math.sin(t / 250) * 4;
     g.circle(ix, by - 4, auraSize);
     g.fill({ color, alpha: 0.04 });
-    g.circle(ix, by - 4, auraSize * 0.7);
-    g.fill({ color, alpha: 0.03 });
   }
 
   // Legs
@@ -554,14 +625,13 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
   g.roundRect(ix + idleSway, by + 14 + Math.sin(legPhase + Math.PI) * (isWalking ? 2 : 0), 6, 3, 1);
   g.fill({ color: 0x1a1a2e });
 
-  // Body / torso
+  // Body
   g.roundRect(ix - 9 + idleSway, by - 8, 18, 16, 3);
   g.fill({ color });
-  g.stroke({ color: 0x000000, width: 0.3, alpha: 0.15 });
-  // Shirt detail
+  // Shirt line
   g.moveTo(ix + idleSway, by - 6); g.lineTo(ix + idleSway, by + 6);
-  g.stroke({ color: 0xffffff, width: 0.5, alpha: 0.15 });
-  // Badge/pocket
+  g.stroke({ color: 0xffffff, width: 0.5, alpha: 0.12 });
+  // Badge
   g.roundRect(ix + 3 + idleSway, by - 4, 4, 4, 1);
   g.fill({ color: 0xffffff, alpha: 0.2 });
 
@@ -576,7 +646,6 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
     g.fill({ color });
     g.roundRect(ix + 8 + idleSway, by + Math.sin(t / 1200 + 1) * 1, 5, 10, 2);
     g.fill({ color });
-    // Hands
     g.circle(ix - 11 + idleSway, by + 10, 2.5);
     g.fill({ color: 0xfcd5b0 });
     g.circle(ix + 11 + idleSway, by + 10, 2.5);
@@ -587,13 +656,9 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
   g.circle(ix + idleSway, by - 16, 9);
   g.fill({ color: 0xfcd5b0 });
   g.stroke({ color: 0xe8b898, width: 0.8 });
-
-  // Hair with role color
+  // Hair
   g.arc(ix + idleSway, by - 18, 9, Math.PI + 0.3, -0.3, false);
   g.fill({ color, alpha: 0.85 });
-  // Hair shine
-  g.arc(ix - 3 + idleSway, by - 20, 4, Math.PI, 0, false);
-  g.fill({ color: 0xffffff, alpha: 0.1 });
 
   // Eyes
   const blinkPhase = Math.sin(t / 3000 + pos.x * 0.1);
@@ -602,13 +667,6 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
   g.fill({ color: 0x1a1a2e });
   g.ellipse(ix + 3 + idleSway, by - 17, 1.8, eyeH);
   g.fill({ color: 0x1a1a2e });
-  // Eye shine
-  if (eyeH > 1) {
-    g.circle(ix - 2.5 + idleSway, by - 17.5, 0.7);
-    g.fill({ color: 0xffffff, alpha: 0.6 });
-    g.circle(ix + 3.5 + idleSway, by - 17.5, 0.7);
-    g.fill({ color: 0xffffff, alpha: 0.6 });
-  }
 
   // Mouth
   if (isTalking) {
@@ -623,85 +681,88 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
     g.fill({ color: 0xc97755 });
   }
 
-  container.addChild(g);
-
-  // Emoji badge (floating above)
-  const badgeY = by - 34 + Math.sin(t / 600) * 2;
-  const badge = new Text({
-    text: emoji,
-    style: new TextStyle({ fontSize: 14 }),
-  });
-  badge.anchor.set(0.5, 0.5); badge.x = ix; badge.y = badgeY;
-  container.addChild(badge);
-
-  // Action bubble
+  // Action bubble (Graphics only, no Text)
   if (agent.current_action !== "idle") {
-    const bubbleG = new Graphics();
     const bx = ix + 18; const bby = by - 36;
-    bubbleG.roundRect(bx - 4, bby - 2, 52, 16, 6);
-    bubbleG.fill({ color: 0xffffff, alpha: 0.92 });
-    bubbleG.stroke({ color, width: 1.5, alpha: 0.6 });
-    bubbleG.poly([
-      { x: bx + 2, y: bby + 14 }, { x: bx - 4, y: bby + 22 }, { x: bx + 12, y: bby + 14 },
+    g.roundRect(bx - 4, bby - 2, 46, 14, 6);
+    g.fill({ color: 0xffffff, alpha: 0.92 });
+    g.stroke({ color, width: 1.5, alpha: 0.6 });
+    g.poly([
+      { x: bx + 2, y: bby + 12 }, { x: bx - 4, y: bby + 20 }, { x: bx + 12, y: bby + 12 },
     ]);
-    bubbleG.fill({ color: 0xffffff, alpha: 0.92 });
-    container.addChild(bubbleG);
-
-    const icons: Record<string, string> = {
-      working: "⚡", talking: "💬", reviewing: "🔍", thinking: "🤔", walking: "🚶",
-    };
-    const actionText = new Text({
-      text: `${icons[agent.current_action] ?? "•"} ${agent.current_action}`,
-      style: new TextStyle({ fontFamily: "monospace", fontSize: 8, fill: hexToNum(ROLE_COLORS[agent.role] ?? "#e94560") }),
-    });
-    actionText.x = bx; actionText.y = bby;
-    container.addChild(actionText);
+    g.fill({ color: 0xffffff, alpha: 0.92 });
   }
 
   // Thinking dots
   if (isThinking) {
     for (let i = 0; i < 3; i++) {
       const dotAlpha = (Math.sin(t / 300 + i * 0.8) + 1) / 2;
-      const dg = new Graphics();
-      dg.circle(ix + 16 + i * 6, by - 38 + Math.sin(t / 500 + i) * 2, 2);
-      dg.fill({ color, alpha: dotAlpha * 0.7 });
-      container.addChild(dg);
+      g.circle(ix + 16 + i * 6, by - 38 + Math.sin(t / 500 + i) * 2, 2);
+      g.fill({ color, alpha: dotAlpha * 0.7 });
     }
   }
 
-  // Name
-  const name = new Text({
+  // Text elements (created sparingly in textContainer)
+  // Name label
+  const nameText = new Text({
     text: agent.name,
     style: new TextStyle({
-      fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-      fontSize: 7,
-      fill: 0xffffff,
+      fontFamily: FONT, fontSize: 7, fill: 0xffffff,
       stroke: { color: 0x000000, width: 3 },
     }),
   });
-  name.anchor.set(0.5, 0); name.x = ix; name.y = iy + 18;
-  container.addChild(name);
+  nameText.anchor.set(0.5, 0); nameText.x = ix; nameText.y = iy + 18;
+  textContainer.addChild(nameText);
+
+  // Action label text
+  if (agent.current_action !== "idle") {
+    const icons: Record<string, string> = {
+      working: ">>", talking: ">_", reviewing: "?!", thinking: "..", walking: "->",
+    };
+    const bx = ix + 18; const bby = by - 36;
+    const actionText = new Text({
+      text: `${icons[agent.current_action] ?? "-"} ${agent.current_action}`,
+      style: new TextStyle({
+        fontFamily: "monospace", fontSize: 8,
+        fill: hexToNum(ROLE_COLORS[agent.role] ?? "#e94560"),
+      }),
+    });
+    actionText.x = bx; actionText.y = bby - 1;
+    textContainer.addChild(actionText);
+  }
 }
 
 // ─── Main Component ───
 export default function IsometricOffice({ agents, width = 700, height = 620 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
+  const worldRef = useRef<Container | null>(null);
+
+  // Store agents in a ref so the render loop always reads current values
+  // WITHOUT triggering a full app recreation
+  const agentsRef = useRef<AgentState[]>(agents);
+  agentsRef.current = agents;
+
   const agentPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   const particles = useRef<Particle[]>([]);
+  const zoomRef = useRef(0.85);
+  const panRef = useRef({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(0.85);
 
-  const updatePositions = useCallback(() => {
-    for (const agent of agents) {
-      const cur = agentPositions.current.get(agent.id) ?? { x: agent.position_x, y: agent.position_y };
-      const tx = agent.target_x || agent.position_x;
-      const ty = agent.target_y || agent.position_y;
-      agentPositions.current.set(agent.id, {
-        x: cur.x + (tx - cur.x) * 0.06,
-        y: cur.y + (ty - cur.y) * 0.06,
-      });
+  const resetView = useCallback(() => {
+    zoomRef.current = 0.85;
+    panRef.current = { x: 0, y: 0 };
+    setZoom(0.85);
+    if (worldRef.current) {
+      worldRef.current.scale.set(0.85);
+      worldRef.current.x = width / 2;
+      worldRef.current.y = 100;
     }
-  }, [agents]);
+  }, [width]);
 
+  // PixiJS app — created ONCE on mount, NOT on every agents update
   useEffect(() => {
     if (!canvasRef.current) return;
     const app = new Application();
@@ -721,18 +782,61 @@ export default function IsometricOffice({ agents, width = 700, height = 620 }: P
       appRef.current = app;
 
       const world = new Container();
-      world.x = width / 2;
-      world.y = 80;
+      world.x = width / 2 + panRef.current.x;
+      world.y = 100 + panRef.current.y;
+      world.scale.set(zoomRef.current);
       app.stage.addChild(world);
+      worldRef.current = world;
 
-      const GRID = 8;
+      // ── Event listeners ──
+      const canvas = app.canvas;
 
-      // Particle layer
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.08 : 0.08;
+        const nz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current + delta));
+        zoomRef.current = nz;
+        setZoom(nz);
+        world.scale.set(nz);
+      };
+
+      const onMouseDown = (e: MouseEvent) => {
+        if (e.button === 0) {
+          draggingRef.current = true;
+          lastMouseRef.current = { x: e.clientX, y: e.clientY };
+          canvas.style.cursor = "grabbing";
+        }
+      };
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!draggingRef.current) return;
+        const dx = e.clientX - lastMouseRef.current.x;
+        const dy = e.clientY - lastMouseRef.current.y;
+        panRef.current.x += dx;
+        panRef.current.y += dy;
+        world.x = width / 2 + panRef.current.x;
+        world.y = 100 + panRef.current.y;
+        lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      };
+
+      const onMouseUp = () => {
+        draggingRef.current = false;
+        canvas.style.cursor = "grab";
+      };
+
+      canvas.addEventListener("wheel", onWheel, { passive: false });
+      canvas.addEventListener("mousedown", onMouseDown);
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+      canvas.style.cursor = "grab";
+
+      // ── Static layers (drawn ONCE) ──
       const particleG = new Graphics();
       world.addChild(particleG);
-      spawnParticles(particles.current, 40, { w: 500, h: 400 });
+      if (particles.current.length === 0) {
+        spawnParticles(particles.current, 50, { w: 600, h: 500 });
+      }
 
-      // Static layers (drawn once, updated for animations)
       const floorG = new Graphics();
       drawFloor(floorG, GRID, GRID);
       world.addChild(floorG);
@@ -741,83 +845,203 @@ export default function IsometricOffice({ agents, width = 700, height = 620 }: P
       drawRug(rugG);
       world.addChild(rugG);
 
-      // Dynamic layers
-      const wallLayer = new Container();
-      world.addChild(wallLayer);
+      const wallG = new Graphics();
+      drawWalls(wallG, GRID);
+      world.addChild(wallG);
 
-      const furnitureLayer = new Container();
-      world.addChild(furnitureLayer);
+      // ── Animated layers — single Graphics objects, cleared each frame ──
+      const animatedWallG = new Graphics();
+      world.addChild(animatedWallG);
 
-      const deskLayer = new Container();
-      world.addChild(deskLayer);
+      const furnitureG = new Graphics();
+      world.addChild(furnitureG);
 
-      const agentLayer = new Container();
-      world.addChild(agentLayer);
+      const deskG = new Graphics();
+      world.addChild(deskG);
+
+      const agentG = new Graphics();
+      world.addChild(agentG);
+
+      // Text container for labels — cleared each frame
+      const textLayer = new Container();
+      world.addChild(textLayer);
+
+      // Static text (drawn once)
+      const staticTextLayer = new Container();
+      world.addChild(staticTextLayer);
+
+      const deskLabels = [
+        { gx: 2.5, gy: 3, label: "PM" },
+        { gx: 7, gy: 3, label: "DEV" },
+        { gx: 2.5, gy: 7, label: "QA" },
+        { gx: 7, gy: 7, label: "OPS" },
+      ];
+      for (const dl of deskLabels) {
+        const [dix, diy] = toIso(dl.gx, dl.gy);
+        const t = new Text({
+          text: dl.label,
+          style: new TextStyle({ fontFamily: "monospace", fontSize: 7, fill: 0x6b7fa0 }),
+        });
+        t.anchor.set(0.5, 0); t.x = dix; t.y = diy + 6;
+        staticTextLayer.addChild(t);
+      }
+
+      // Wall text labels (static)
+      const [lx2, ly2] = toIso(0, 0);
+      const [rx2, ry2] = toIso(GRID, 0);
+      const atx = lx2 + (rx2 - lx2) * 0.75;
+      const aty = ly2 + (ry2 - ly2) * 0.75 - 80;
+      const alText = new Text({
+        text: "AGENTLOOP",
+        style: new TextStyle({ fontFamily: "monospace", fontSize: 6, fill: 0x3b82f6, letterSpacing: 2, fontWeight: "bold" }),
+      });
+      alText.anchor.set(0.5, 0.5); alText.x = atx; alText.y = aty + 8;
+      staticTextLayer.addChild(alText);
+
+      // EXIT sign text
+      const [brx2, bry2] = toIso(GRID, GRID);
+      const dx = rx2 + (brx2 - rx2) * 0.88;
+      const dy = ry2 + (bry2 - ry2) * 0.88;
+      const exitT = new Text({
+        text: "EXIT",
+        style: new TextStyle({ fontFamily: "monospace", fontSize: 4, fill: 0xffffff, fontWeight: "bold" }),
+      });
+      exitT.anchor.set(0.5, 0.5); exitT.x = dx; exitT.y = dy - 65;
+      staticTextLayer.addChild(exitT);
 
       // Title
       const title = new Text({
-        text: "🏢 AGENTLOOP HQ",
+        text: "AGENTLOOP HQ",
         style: new TextStyle({
-          fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-          fontSize: 9,
-          fill: 0x3a4f68,
-          letterSpacing: 3,
+          fontFamily: FONT, fontSize: 9, fill: 0x3a4f68, letterSpacing: 4,
         }),
       });
       title.anchor.set(0.5, 0);
-      title.x = 0; title.y = GRID * TILE_H + 16;
-      world.addChild(title);
+      title.x = 0; title.y = GRID * TILE_H + 20;
+      staticTextLayer.addChild(title);
 
-      // Render loop
+      // ── Render loop ──
+      let frameCount = 0;
       app.ticker.add(() => {
         const t = Date.now();
-        updatePositions();
+        frameCount++;
+        const currentAgents = agentsRef.current;
+
+        // Update positions (interpolate toward targets)
+        for (const agent of currentAgents) {
+          const cur = agentPositions.current.get(agent.id) ?? { x: agent.position_x, y: agent.position_y };
+          const tx = agent.target_x || agent.position_x;
+          const ty = agent.target_y || agent.position_y;
+          agentPositions.current.set(agent.id, {
+            x: cur.x + (tx - cur.x) * 0.06,
+            y: cur.y + (ty - cur.y) * 0.06,
+          });
+        }
 
         // Particles
-        tickParticles(particles.current, particleG, { w: 500, h: 400 });
+        tickParticles(particles.current, particleG, { w: 600, h: 500 });
 
-        // Redraw dynamic elements
-        wallLayer.removeChildren();
-        const wallG = new Graphics();
-        drawWalls(wallG, GRID);
-        wallLayer.addChild(wallG);
-        drawWindow(wallLayer, GRID, t);
-        drawWallArt(wallLayer, GRID);
+        // Animated wall elements (window, lights, clock, etc.) — redraw every 2 frames
+        if (frameCount % 2 === 0) {
+          animatedWallG.clear();
+          drawWindow(animatedWallG, GRID, t);
+          drawCeilingLights(animatedWallG, t);
+          drawWallArt(animatedWallG, GRID);
+        }
 
-        furnitureLayer.removeChildren();
-        drawFurniture(furnitureLayer, t);
+        // Furniture — redraw every 3 frames (LEDs don't need 60fps)
+        if (frameCount % 3 === 0) {
+          furnitureG.clear();
+          drawFurniture(furnitureG, t);
+        }
 
-        deskLayer.removeChildren();
-        drawDesk(deskLayer, 2, 3, hexToNum(ROLE_COLORS.product_manager), "PM", t);
-        drawDesk(deskLayer, 6, 3, hexToNum(ROLE_COLORS.developer), "DEV", t);
-        drawDesk(deskLayer, 2, 6, hexToNum(ROLE_COLORS.quality_assurance), "QA", t);
-        drawDesk(deskLayer, 6, 6, hexToNum(ROLE_COLORS.deployer), "OPS", t);
+        // Desks — redraw every 2 frames
+        if (frameCount % 2 === 0) {
+          deskG.clear();
+          drawDesk(deskG, 2.5, 3, hexToNum(ROLE_COLORS.product_manager), t);
+          drawDesk(deskG, 7, 3, hexToNum(ROLE_COLORS.developer), t);
+          drawDesk(deskG, 2.5, 7, hexToNum(ROLE_COLORS.quality_assurance), t);
+          drawDesk(deskG, 7, 7, hexToNum(ROLE_COLORS.deployer), t);
+        }
 
-        agentLayer.removeChildren();
-        const sorted = [...agents].sort((a, b) => {
+        // Agents — every frame for smooth animation
+        agentG.clear();
+        clearContainer(textLayer);
+
+        const sorted = [...currentAgents].sort((a, b) => {
           const pa = agentPositions.current.get(a.id);
           const pb = agentPositions.current.get(b.id);
           return (pa?.y ?? 0) - (pb?.y ?? 0);
         });
         for (const agent of sorted) {
           const pos = agentPositions.current.get(agent.id) ?? { x: agent.position_x, y: agent.position_y };
-          drawAgent(agentLayer, agent, pos, t);
+          drawAgent(agentG, textLayer, agent, pos, t);
         }
       });
+
+      // Cleanup
+      return () => {
+        canvas.removeEventListener("wheel", onWheel);
+        canvas.removeEventListener("mousedown", onMouseDown);
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
     })();
 
-    return () => { mounted = false; appRef.current?.destroy(true); appRef.current = null; };
-  }, [width, height, agents, updatePositions]);
+    return () => {
+      mounted = false;
+      appRef.current?.destroy(true);
+      appRef.current = null;
+      worldRef.current = null;
+    };
+    // Only recreate the app when width/height change — NOT when agents change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [width, height]);
 
   return (
-    <div
-      ref={canvasRef}
-      className="rounded-xl border border-slate-700/50 overflow-hidden"
-      style={{
-        width, height,
-        background: "linear-gradient(180deg, #080c14 0%, #0d1420 50%, #0a0e17 100%)",
-        boxShadow: "0 0 60px rgba(59, 130, 246, 0.08), 0 0 120px rgba(139, 92, 246, 0.04), inset 0 0 60px rgba(0,0,0,0.6)",
-      }}
-    />
+    <div className="relative">
+      <div
+        ref={canvasRef}
+        className="rounded-xl border border-slate-700/50 overflow-hidden"
+        style={{
+          width, height,
+          background: "linear-gradient(180deg, #080c14 0%, #0d1420 50%, #0a0e17 100%)",
+          boxShadow: "0 0 60px rgba(59, 130, 246, 0.08), 0 0 120px rgba(139, 92, 246, 0.04), inset 0 0 60px rgba(0,0,0,0.6)",
+        }}
+      />
+      {/* Zoom controls */}
+      <div className="absolute bottom-3 right-3 flex flex-col gap-1">
+        <button
+          onClick={() => {
+            const nz = Math.min(MAX_ZOOM, zoomRef.current + 0.15);
+            zoomRef.current = nz; setZoom(nz);
+            if (worldRef.current) worldRef.current.scale.set(nz);
+          }}
+          className="w-7 h-7 rounded bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80 transition text-xs font-bold flex items-center justify-center"
+          title="Zoom in"
+        >+</button>
+        <button
+          onClick={() => {
+            const nz = Math.max(MIN_ZOOM, zoomRef.current - 0.15);
+            zoomRef.current = nz; setZoom(nz);
+            if (worldRef.current) worldRef.current.scale.set(nz);
+          }}
+          className="w-7 h-7 rounded bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80 transition text-xs font-bold flex items-center justify-center"
+          title="Zoom out"
+        >-</button>
+        <button
+          onClick={resetView}
+          className="w-7 h-7 rounded bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80 transition text-[9px] font-bold flex items-center justify-center"
+          title="Reset view"
+        >R</button>
+        <span className="text-[8px] text-slate-600 text-center mt-0.5 font-mono">
+          {Math.round(zoom * 100)}%
+        </span>
+      </div>
+      {/* Hint */}
+      <div className="absolute top-2 right-3 text-[8px] text-slate-700 font-mono">
+        scroll: zoom / drag: pan
+      </div>
+    </div>
   );
 }

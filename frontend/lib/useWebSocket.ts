@@ -14,38 +14,39 @@ export function useAgentWebSocket() {
   const reconnectRef = useRef<NodeJS.Timeout>(undefined);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    
+    if (wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING) return;
+
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
     ws.onclose = () => {
       setConnected(false);
+      wsRef.current = null;
       reconnectRef.current = setTimeout(connect, 3000);
     };
     ws.onerror = () => ws.close();
 
     ws.onmessage = (e) => {
-      const msg: WSMessage = JSON.parse(e.data);
+      let msg: WSMessage;
+      try { msg = JSON.parse(e.data); } catch { return; }
 
       if (msg.type === "init" && msg.data.agents) {
         setAgents(msg.data.agents as unknown as AgentState[]);
-      } else if (msg.type === "agent.update") {
+      } else if (msg.type === "agent.update" || msg.type === "agent.action") {
         setAgents((prev) =>
           prev.map((a) =>
             a.id === (msg.data as { id: string }).id ? { ...a, ...msg.data } : a
           )
         );
-      } else if (msg.type === "agent.action") {
-        setAgents((prev) =>
-          prev.map((a) =>
-            a.id === (msg.data as { id: string }).id ? { ...a, ...msg.data } : a
-          )
-        );
+      } else if (msg.type === "agent.batch_update" && Array.isArray(msg.data.agents)) {
+        setAgents(msg.data.agents as unknown as AgentState[]);
       }
 
-      setEvents((prev) => [msg, ...prev].slice(0, 50));
+      if (msg.type !== "pong") {
+        setEvents((prev) => [msg, ...prev].slice(0, 100));
+      }
     };
   }, []);
 
