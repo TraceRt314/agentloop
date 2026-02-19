@@ -10,7 +10,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from ..config import settings
-from ..models import Agent, Event, Mission, Project, Step, StepStatus
+from ..models import Agent, Event, Mission, Project, ProjectContext, Step, StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +232,20 @@ class WorkerEngine:
         mission = session.get(Mission, step.mission_id)
         project = session.get(Project, agent.project_id)
 
+        # Gather persistent project context
+        project_knowledge = ""
+        if project:
+            ctx_entries = session.exec(
+                select(ProjectContext)
+                .where(ProjectContext.project_id == project.id)
+                .order_by(ProjectContext.created_at.desc())
+            ).all()[:20]
+            if ctx_entries:
+                lines = ["--- Project Knowledge ---"]
+                for e in ctx_entries:
+                    lines.append(f"[{e.category}/{e.key}] {e.content}")
+                project_knowledge = "\n".join(lines)
+
         context = {
             "project_name": project.name if project else "Unknown",
             "project_description": project.description if project else "",
@@ -241,6 +255,7 @@ class WorkerEngine:
             "step_title": step.title,
             "step_description": step.description,
             "step_type": step.step_type.value,
+            "project_knowledge": project_knowledge,
         }
 
         work_prompt_template = agent_config.get(
@@ -254,6 +269,7 @@ class WorkerEngine:
                 "{mission_description}\n\n"
                 "Project: {project_description}\n"
                 "Repository: {repo_path}\n\n"
+                "{project_knowledge}\n\n"
                 "Please complete this task and report your results."
             ),
         )
