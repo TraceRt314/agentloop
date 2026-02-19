@@ -66,14 +66,14 @@ export default function TasksPanel() {
   }, [selectedBoard]);
 
   if (loading) {
-    return <div className="p-6 text-center text-slate-600 pixel-font text-xs animate-pulse">Loading boards...</div>;
+    return <div className="p-6 text-center text-slate-600 ui-label text-xs animate-pulse">Loading boards...</div>;
   }
 
   return (
     <div className="flex h-full">
       {/* Board list */}
       <div className="w-56 border-r border-slate-800/50 p-3 space-y-1.5 overflow-y-auto">
-        <h3 className="pixel-font text-[9px] text-slate-500 uppercase tracking-wider mb-3">📋 MC Boards</h3>
+        <h3 className="ui-label text-[9px] text-slate-500 uppercase tracking-wider mb-3">📋 MC Boards</h3>
         {boards.map((b) => (
           <button
             key={b.id}
@@ -86,7 +86,7 @@ export default function TasksPanel() {
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium truncate">{b.name}</span>
-              <span className="pixel-font text-slate-500 shrink-0 ml-2" style={{ fontSize: 8 }}>
+              <span className="ui-label text-slate-500 shrink-0 ml-2" style={{ fontSize: 8 }}>
                 {b.task_count}
               </span>
             </div>
@@ -108,16 +108,16 @@ export default function TasksPanel() {
       {/* Task list */}
       <div className="flex-1 p-4 overflow-y-auto">
         {loadingTasks ? (
-          <div className="text-center text-slate-600 pixel-font text-xs animate-pulse mt-8">Loading tasks...</div>
+          <div className="text-center text-slate-600 ui-label text-xs animate-pulse mt-8">Loading tasks...</div>
         ) : tasks.length === 0 ? (
           <div className="text-center text-slate-700 text-xs mt-8">No tasks in this board</div>
         ) : (
           <div className="space-y-2">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="pixel-font text-xs text-slate-400">
+              <h3 className="ui-label text-xs text-slate-400">
                 {boards.find((b) => b.id === selectedBoard)?.name ?? "Tasks"}
               </h3>
-              <span className="pixel-font text-slate-600" style={{ fontSize: 8 }}>{tasks.length} tasks</span>
+              <span className="ui-label text-slate-600" style={{ fontSize: 8 }}>{tasks.length} tasks</span>
             </div>
             {tasks.map((task) => (
               <div

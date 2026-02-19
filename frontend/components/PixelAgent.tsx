@@ -141,7 +141,7 @@ export default function PixelAgent({ agent, scale = 1 }: Props) {
         {/* Action indicator */}
         {agent.current_action !== "idle" && (
           <div
-            className="absolute pixel-font text-center whitespace-nowrap"
+            className="absolute ui-label text-center whitespace-nowrap"
             style={{
               top: -32,
               left: "50%",
@@ -158,7 +158,7 @@ export default function PixelAgent({ agent, scale = 1 }: Props) {
 
       {/* Name tag */}
       <div
-        className="pixel-font text-center mt-1 whitespace-nowrap"
+        className="ui-label text-center mt-1 whitespace-nowrap"
         style={{
           fontSize: 7,
           color: "#fff",

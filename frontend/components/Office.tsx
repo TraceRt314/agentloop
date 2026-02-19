@@ -49,7 +49,7 @@ function Desk({ x, y, label }: { x: number; y: number; label: string }) {
       </div>
       {/* Label */}
       <div
-        className="pixel-font text-center mt-1"
+        className="ui-label text-center mt-1"
         style={{ fontSize: 6, color: "#8892b0" }}
       >
         {label}
@@ -79,7 +79,7 @@ function CoffeeMachine({ x, y }: { x: number; y: number }) {
   return (
     <div className="absolute" style={{ left: x, top: y }}>
       <div style={{ fontSize: 18 }}>☕</div>
-      <div className="pixel-font" style={{ fontSize: 5, color: "#8892b0", textAlign: "center" }}>Coffee</div>
+      <div className="ui-label" style={{ fontSize: 5, color: "#8892b0", textAlign: "center" }}>Coffee</div>
     </div>
   );
 }
@@ -112,7 +112,7 @@ function ServerRack({ x, y }: { x: number; y: number }) {
           </div>
         ))}
       </div>
-      <div className="pixel-font" style={{ fontSize: 5, color: "#8892b0", textAlign: "center", marginTop: 2 }}>Server</div>
+      <div className="ui-label" style={{ fontSize: 5, color: "#8892b0", textAlign: "center", marginTop: 2 }}>Server</div>
     </div>
   );
 }
@@ -135,7 +135,7 @@ function Whiteboard({ x, y }: { x: number; y: number }) {
         <div style={{ width: "45%", height: 2, background: "#4ade80", marginBottom: 3, borderRadius: 1 }} />
         <div style={{ width: "70%", height: 2, background: "#fbbf24", borderRadius: 1 }} />
       </div>
-      <div className="pixel-font" style={{ fontSize: 5, color: "#8892b0", textAlign: "center", marginTop: 2 }}>Sprint Board</div>
+      <div className="ui-label" style={{ fontSize: 5, color: "#8892b0", textAlign: "center", marginTop: 2 }}>Sprint Board</div>
     </div>
   );
 }
@@ -239,7 +239,7 @@ export default function Office({ agents, width = 560, height = 500 }: Props) {
 
       {/* Room label */}
       <div
-        className="absolute pixel-font"
+        className="absolute ui-label"
         style={{
           bottom: 8,
           left: "50%",

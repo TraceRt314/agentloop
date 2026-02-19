@@ -15,13 +15,13 @@ export default function StatusPanel({ agents, connected }: Props) {
         <span
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
         />
-        <span className="pixel-font text-xs text-slate-400">
+        <span className="ui-label text-xs text-slate-400">
           {connected ? "CONNECTED" : "OFFLINE"}
         </span>
       </div>
 
       {/* Agent cards */}
-      <h3 className="pixel-font text-xs text-slate-400">AGENTS</h3>
+      <h3 className="ui-label text-xs text-slate-400">AGENTS</h3>
       <div className="space-y-2">
         {agents.map((agent) => {
           const color = ROLE_COLORS[agent.role] ?? ROLE_COLORS.default;
@@ -37,7 +37,7 @@ export default function StatusPanel({ agents, connected }: Props) {
             >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-base">{emoji}</span>
-                <span className="pixel-font text-xs" style={{ color }}>
+                <span className="ui-label text-xs" style={{ color }}>
                   {agent.name}
                 </span>
                 <span
@@ -49,7 +49,7 @@ export default function StatusPanel({ agents, connected }: Props) {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">{agent.role.replace("_", " ")}</span>
                 <span
-                  className="pixel-font px-2 py-0.5 rounded text-xs"
+                  className="ui-label px-2 py-0.5 rounded text-xs"
                   style={{
                     fontSize: 7,
                     background: `${color}20`,
@@ -63,7 +63,7 @@ export default function StatusPanel({ agents, connected }: Props) {
           );
         })}
         {agents.length === 0 && (
-          <p className="text-slate-600 text-xs pixel-font">No agents registered</p>
+          <p className="text-slate-600 text-xs ui-label">No agents registered</p>
         )}
       </div>
     </div>

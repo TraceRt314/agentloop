@@ -14,19 +14,19 @@
   --pixel-purple: #a78bfa;
 }
 
-* { image-rendering: pixelated; }
-
 body {
   background: var(--bg-office);
   color: var(--text);
-  font-family: 'Press Start 2P', monospace, system-ui;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
 }
 
-@font-face {
-  font-family: 'Press Start 2P';
-  src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
-  font-display: swap;
+.ui-mono { font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace; }
+.ui-label {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 @keyframes float {
@@ -44,7 +44,6 @@ body {
   50% { box-shadow: 0 0 16px rgba(74, 222, 128, 0.6); }
 }
 
-.pixel-font { font-family: 'Press Start 2P', monospace; }
 .float-anim { animation: float 2s ease-in-out infinite; }
 .blink-anim { animation: blink 4s ease-in-out infinite; }
 .work-pulse { animation: work-pulse 2s ease-in-out infinite; }

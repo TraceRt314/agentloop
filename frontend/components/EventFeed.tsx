@@ -29,13 +29,13 @@ function formatTime(ts: string) {
 export default function EventFeed({ events }: Props) {
   return (
     <div className="h-full flex flex-col">
-      <h3 className="pixel-font text-xs text-slate-400 mb-3 flex items-center gap-2">
+      <h3 className="ui-mono text-xs text-slate-400 mb-3 flex items-center gap-2">
         <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
         LIVE FEED
       </h3>
       <div className="flex-1 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
         {events.length === 0 && (
-          <p className="text-slate-600 text-xs pixel-font">Waiting for events...</p>
+          <p className="text-slate-600 text-xs ui-mono">Waiting for events...</p>
         )}
         {events.map((ev, i) => (
           <div
@@ -49,7 +49,7 @@ export default function EventFeed({ events }: Props) {
                 <span className="text-slate-500 ml-1">→ {String(ev.data.name)}</span>
               )}
             </div>
-            <span className="text-slate-600 shrink-0 pixel-font" style={{ fontSize: 6 }}>
+            <span className="text-slate-600 shrink-0 ui-mono" style={{ fontSize: 6 }}>
               {formatTime(ev.ts)}
             </span>
           </div>

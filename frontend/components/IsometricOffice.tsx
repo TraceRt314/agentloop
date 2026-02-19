@@ -673,7 +673,7 @@ function drawAgent(container: Container, agent: AgentState, pos: { x: number; y:
   const name = new Text({
     text: agent.name,
     style: new TextStyle({
-      fontFamily: "'Press Start 2P', monospace",
+      fontFamily: "'Inter', 'Segoe UI', sans-serif",
       fontSize: 7,
       fill: 0xffffff,
       stroke: { color: 0x000000, width: 3 },
@@ -758,7 +758,7 @@ export default function IsometricOffice({ agents, width = 700, height = 620 }: P
       const title = new Text({
         text: "🏢 AGENTLOOP HQ",
         style: new TextStyle({
-          fontFamily: "'Press Start 2P', monospace",
+          fontFamily: "'Inter', 'Segoe UI', sans-serif",
           fontSize: 9,
           fill: 0x3a4f68,
           letterSpacing: 3,

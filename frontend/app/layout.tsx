@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "AgentLoop — Multi-Agent Orchestration",
-  description: "Watch your AI agents work autonomously in a pixel-art office",
+  description: "Watch your AI agents work autonomously in a virtual office",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${inter.variable} ${jetbrains.variable}`}>
       <body className="antialiased">{children}</body>
     </html>
   );

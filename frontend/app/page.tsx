@@ -12,7 +12,7 @@ const IsometricOffice = dynamic(() => import("@/components/IsometricOffice"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center rounded-xl border-2 border-slate-700 bg-slate-950" style={{ width: 700, height: 620 }}>
-      <div className="pixel-font text-slate-600 text-xs animate-pulse">Loading office...</div>
+      <div className="ui-label text-slate-600 text-xs animate-pulse">Loading office...</div>
     </div>
   ),
 });
@@ -39,7 +39,7 @@ export default function Home() {
             <div className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
           </div>
           <div>
-            <h1 className="pixel-font text-sm tracking-wider text-white">AGENTLOOP</h1>
+            <h1 className="ui-label text-sm tracking-wider text-white">AGENTLOOP</h1>
             <p className="text-[10px] text-slate-500 mt-0.5">Multi-Agent Orchestration Platform</p>
           </div>
         </div>
@@ -50,7 +50,7 @@ export default function Home() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md transition-all pixel-font ${
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md transition-all ui-label ${
                 activeTab === tab.id
                   ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
                   : "text-slate-500 hover:text-slate-300 border border-transparent"
@@ -66,11 +66,11 @@ export default function Home() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
-            <span className="pixel-font" style={{ fontSize: 8 }}>{connected ? "LIVE" : "OFFLINE"}</span>
+            <span className="ui-label" style={{ fontSize: 8 }}>{connected ? "LIVE" : "OFFLINE"}</span>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/50 border border-slate-700/50">
             <span className="text-xs">🤖</span>
-            <span className="pixel-font text-slate-400" style={{ fontSize: 8 }}>{agents.length} AGENTS</span>
+            <span className="ui-label text-slate-400" style={{ fontSize: 8 }}>{agents.length} AGENTS</span>
           </div>
         </div>
       </header>
@@ -115,7 +115,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="flex items-center justify-between px-6 py-2 border-t border-slate-800/50 bg-[#161b22]/80">
-        <div className="pixel-font text-slate-700" style={{ fontSize: 7 }}>
+        <div className="ui-label text-slate-700" style={{ fontSize: 7 }}>
           AgentLoop v0.1.0 — Open Source Multi-Agent Platform
         </div>
         <div className="flex items-center gap-4">
