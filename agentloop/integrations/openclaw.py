@@ -1,142 +1,185 @@
-"""OpenClaw integration helpers."""
+"""OpenClaw gateway integration via CLI subprocess.
 
-import httpx
+Uses `openclaw agent` CLI which handles authentication, session management,
+and agent execution synchronously — bypassing the WebSocket scope issue.
+"""
+
+import json
+import logging
+import shutil
+import subprocess
 from typing import Any, Dict, Optional
 
 from ..config import settings
 
+logger = logging.getLogger(__name__)
 
-class OpenClawClient:
-    """Client for interacting with OpenClaw APIs."""
-    
-    def __init__(self, base_url: str = None, token: str = None):
-        self.base_url = base_url or settings.openclaw_base_url
-        self.token = token or settings.openclaw_token
-        self.client = httpx.AsyncClient(
-            base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self.token}"} if self.token else {},
-        )
-    
-    async def spawn_subagent(
+DEFAULT_TIMEOUT = 300  # 5 minutes
+
+
+class GatewayError(Exception):
+    """Raised when a gateway CLI call fails."""
+
+
+class GatewayClient:
+    """Client for the OpenClaw gateway via the `openclaw agent` CLI.
+
+    The CLI handles auth, sessions, and agent dispatch internally.
+    Each call is synchronous (subprocess.run) — perfect for the
+    sync worker engine.
+    """
+
+    def __init__(self, timeout: int = None):
+        self.timeout = timeout or settings.step_timeout_seconds
+        self._binary = shutil.which("openclaw")
+        if not self._binary:
+            logger.warning("openclaw CLI not found in PATH")
+
+    @property
+    def available(self) -> bool:
+        return self._binary is not None
+
+    @staticmethod
+    def step_session_key(step_id: str) -> str:
+        """Deterministic session key for a step execution.
+
+        Session IDs must not contain colons — use hyphens only.
+        """
+        return f"agentloop-step-{step_id}"
+
+    def run_agent(
         self,
-        task_description: str,
-        context: Dict[str, Any] = None,
-        timeout_seconds: int = 300
-    ) -> Dict[str, Any]:
-        """Spawn an OpenClaw sub-agent to execute a task."""
-        payload = {
-            "task": task_description,
-            "context": context or {},
-            "timeout": timeout_seconds,
-        }
-        
-        try:
-            response = await self.client.post("/api/v1/subagents/spawn", json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Failed to spawn sub-agent: {str(e)}")
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Sub-agent spawn failed with status {e.response.status_code}: {e.response.text}")
-    
-    async def get_subagent_status(self, subagent_id: str) -> Dict[str, Any]:
-        """Get the status of a sub-agent."""
-        try:
-            response = await self.client.get(f"/api/v1/subagents/{subagent_id}/status")
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Failed to get sub-agent status: {str(e)}")
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Status request failed with status {e.response.status_code}: {e.response.text}")
-    
-    async def send_message(
-        self,
-        channel: str,
+        session_id: str,
         message: str,
-        metadata: Dict[str, Any] = None
-    ) -> bool:
-        """Send a message through OpenClaw."""
-        payload = {
-            "channel": channel,
-            "message": message,
-            "metadata": metadata or {},
-        }
-        
-        try:
-            response = await self.client.post("/api/v1/messages/send", json=payload)
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            # Don't fail if messaging doesn't work
-            return False
-    
-    async def create_cron_job(
-        self,
-        schedule: str,
-        command: str,
-        description: str = None
+        timeout: int = None,
     ) -> Dict[str, Any]:
-        """Create a cron job in OpenClaw."""
-        payload = {
-            "schedule": schedule,
-            "command": command,
-            "description": description or "AgentLoop orchestration task",
-        }
-        
-        try:
-            response = await self.client.post("/api/v1/cron/create", json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            raise RuntimeError(f"Failed to create cron job: {str(e)}")
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Cron creation failed with status {e.response.status_code}: {e.response.text}")
-    
-    async def close(self):
-        """Close the HTTP client."""
-        await self.client.aclose()
+        """Run the openclaw agent CLI and return parsed JSON result.
 
+        Args:
+            session_id: Unique session identifier for this execution.
+            message: The prompt/instruction to send to the agent.
+            timeout: Max seconds to wait (defaults to self.timeout).
 
-class OpenClawWebhooks:
-    """Webhook handlers for OpenClaw integration."""
-    
-    @staticmethod
-    def generate_orchestrator_cron_command(api_base_url: str) -> str:
-        """Generate the cron command for orchestrator ticks."""
-        return f"curl -X POST {api_base_url}/api/v1/orchestrator/tick"
-    
-    @staticmethod
-    def generate_agent_work_cron_command(api_base_url: str, agent_id: str) -> str:
-        """Generate the cron command for agent work cycles."""
-        return f"curl -X POST {api_base_url}/api/v1/orchestrator/work-cycle/{agent_id}"
-    
-    @staticmethod
-    def generate_setup_script(
-        api_base_url: str,
-        orchestrator_schedule: str = "*/5 * * * *",  # Every 5 minutes
-        agents_schedule: str = "*/10 * * * *",      # Every 10 minutes
-    ) -> str:
-        """Generate shell script to set up OpenClaw cron jobs."""
-        script_lines = [
-            "#!/bin/bash",
-            "# AgentLoop OpenClaw integration setup script",
-            "",
-            "echo 'Setting up AgentLoop cron jobs...'",
-            "",
-            "# Orchestrator tick (every 5 minutes)",
-            f'openclaw cron add "{orchestrator_schedule}" "curl -X POST {api_base_url}/api/v1/orchestrator/tick" --description "AgentLoop orchestrator tick"',
-            "",
-            "# Note: Add agent work cycle cron jobs manually for each agent:",
-            "# openclaw cron add \"*/10 * * * *\" \"curl -X POST {api_base_url}/api/v1/orchestrator/work-cycle/AGENT_ID\" --description \"AgentLoop agent work cycle\"",
-            "",
-            "echo 'Cron jobs set up successfully!'",
-            "echo 'You can list them with: openclaw cron list'",
-            "",
+        Returns:
+            Parsed JSON response from the CLI.
+
+        Raises:
+            GatewayError: If the CLI fails, times out, or returns bad JSON.
+        """
+        if not self.available:
+            raise GatewayError("openclaw CLI not found in PATH")
+
+        effective_timeout = timeout or self.timeout
+
+        cmd = [
+            self._binary,
+            "agent",
+            "--session-id", session_id,
+            "--message", message,
+            "--json",
         ]
-        
-        return "\n".join(script_lines)
+
+        logger.info(
+            "Dispatching to openclaw agent: session=%s timeout=%ds",
+            session_id, effective_timeout,
+        )
+        logger.debug("Prompt length: %d chars", len(message))
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=effective_timeout + 10,  # buffer over agent timeout
+            )
+        except subprocess.TimeoutExpired:
+            raise GatewayError(
+                f"openclaw agent timed out after {effective_timeout}s "
+                f"(session={session_id})"
+            )
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()[:500] if result.stderr else "no stderr"
+            raise GatewayError(
+                f"openclaw agent exited {result.returncode}: {stderr}"
+            )
+
+        # Parse the JSON output
+        stdout = result.stdout.strip()
+        if not stdout:
+            raise GatewayError("openclaw agent returned empty output")
+
+        try:
+            data = json.loads(stdout)
+        except json.JSONDecodeError as e:
+            # Sometimes the CLI prints non-JSON before the JSON blob
+            # Try to find the last JSON object in output
+            last_brace = stdout.rfind("{")
+            if last_brace >= 0:
+                try:
+                    data = json.loads(stdout[last_brace:])
+                except json.JSONDecodeError:
+                    raise GatewayError(
+                        f"Failed to parse CLI output as JSON: {e}"
+                    ) from e
+            else:
+                raise GatewayError(
+                    f"Failed to parse CLI output as JSON: {e}"
+                ) from e
+
+        logger.info(
+            "openclaw agent completed: session=%s status=%s",
+            session_id, data.get("status", "unknown"),
+        )
+
+        return data
+
+    def dispatch_step(
+        self,
+        step_id: str,
+        work_prompt: str,
+        timeout: int = None,
+    ) -> Dict[str, Any]:
+        """Dispatch a step for execution via the CLI.
+
+        Args:
+            step_id: The AgentLoop step UUID.
+            work_prompt: Full prompt including callback instructions.
+            timeout: Max seconds to wait.
+
+        Returns:
+            Parsed JSON response from the agent.
+        """
+        session_id = self.step_session_key(step_id)
+        return self.run_agent(session_id, work_prompt, timeout=timeout)
+
+    def health_check(self) -> bool:
+        """Quick check: is the openclaw CLI available and responsive?"""
+        if not self.available:
+            return False
+        try:
+            result = self.run_agent(
+                session_id="agentloop-healthcheck",
+                message="Reply with exactly: PONG",
+                timeout=30,
+            )
+            return result.get("status") == "ok"
+        except GatewayError:
+            return False
+
+    def extract_response_text(self, result: Dict[str, Any]) -> str:
+        """Extract the agent's text response from CLI JSON output.
+
+        The CLI returns:
+        {"runId": "...", "status": "ok", "result": {"payloads": [{"text": "..."}]}}
+        """
+        try:
+            payloads = result.get("result", {}).get("payloads", [])
+            texts = [p["text"] for p in payloads if "text" in p]
+            return "\n".join(texts) if texts else ""
+        except (KeyError, TypeError):
+            return str(result.get("result", ""))
 
 
-# Global client instance
-openclaw_client = OpenClawClient()
+# Global singleton
+gateway_client = GatewayClient()

@@ -11,6 +11,7 @@ from ..models import (
     Agent, AgentStatus, Project, Proposal, ProposalStatus,
     Mission, MissionStatus, Step, StepStatus, Event,
 )
+from ..config import settings
 from ..integrations.mission_control import (
     get_boards, get_board_tasks, BOARD_PROJECT_MAP, mc_get,
 )
@@ -135,10 +136,11 @@ def system_status():
     """System health — check all services."""
     import httpx
     
+    gw_http = settings.openclaw_gateway_url.replace("ws://", "http://").replace("wss://", "https://")
     services = {
-        "agentloop_api": {"url": "http://localhost:8080/healthz", "status": "unknown"},
-        "mission_control": {"url": "http://localhost:8002/healthz", "status": "unknown"},
-        "openclaw_gateway": {"url": "http://localhost:18789", "status": "unknown"},
+        "agentloop_api": {"url": f"{settings.api_base_url}/healthz", "status": "unknown"},
+        "mission_control": {"url": f"{settings.mc_base_url}/healthz", "status": "unknown"},
+        "openclaw_gateway": {"url": gw_http, "status": "unknown"},
     }
     
     for name, svc in services.items():

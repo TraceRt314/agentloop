@@ -4,46 +4,54 @@ import httpx
 import logging
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from ..config import settings
 
-MC_BASE = "http://localhost:8002"
-MC_TOKEN = "xnvLdACuZP3iIZk2owZFyAWCt1bYNIk2DJrqOgf/4u1NSjGi4YbJ2m31IwZEgSnV"
+logger = logging.getLogger(__name__)
 
 
 def _headers() -> dict:
-    return {"Authorization": f"Bearer {MC_TOKEN}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if settings.mc_token:
+        headers["Authorization"] = f"Bearer {settings.mc_token}"
+    if settings.mc_org_id:
+        headers["X-Organization-Id"] = settings.mc_org_id
+    return headers
 
 
 def mc_get(path: str) -> Optional[dict]:
     """GET from Mission Control API."""
     try:
-        r = httpx.get(f"{MC_BASE}{path}", headers=_headers(), timeout=10)
+        r = httpx.get(f"{settings.mc_base_url}{path}", headers=_headers(), timeout=10)
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        logger.warning(f"MC GET {path} failed: {e}")
+        logger.warning("MC GET %s failed: %s", path, e)
         return None
 
 
 def mc_post(path: str, data: dict) -> Optional[dict]:
     """POST to Mission Control API."""
     try:
-        r = httpx.post(f"{MC_BASE}{path}", headers=_headers(), json=data, timeout=10)
+        r = httpx.post(
+            f"{settings.mc_base_url}{path}", headers=_headers(), json=data, timeout=10
+        )
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        logger.warning(f"MC POST {path} failed: {e}")
+        logger.warning("MC POST %s failed: %s", path, e)
         return None
 
 
 def mc_patch(path: str, data: dict) -> Optional[dict]:
     """PATCH Mission Control API."""
     try:
-        r = httpx.patch(f"{MC_BASE}{path}", headers=_headers(), json=data, timeout=10)
+        r = httpx.patch(
+            f"{settings.mc_base_url}{path}", headers=_headers(), json=data, timeout=10
+        )
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        logger.warning(f"MC PATCH {path} failed: {e}")
+        logger.warning("MC PATCH %s failed: %s", path, e)
         return None
 
 
@@ -69,37 +77,45 @@ def update_task_status(board_id: str, task_id: str, status: str) -> Optional[dic
     return mc_patch(f"/api/v1/boards/{board_id}/tasks/{task_id}", {"status": status})
 
 
-def create_task(board_id: str, title: str, description: str = "", priority: str = "medium") -> Optional[dict]:
+def create_task(
+    board_id: str, title: str, description: str = "", priority: str = "medium"
+) -> Optional[dict]:
     """Create a new task in Mission Control."""
-    return mc_post(f"/api/v1/boards/{board_id}/tasks", {
-        "title": title,
-        "description": description,
-        "priority": priority,
-    })
+    return mc_post(
+        f"/api/v1/boards/{board_id}/tasks",
+        {"title": title, "description": description, "priority": priority},
+    )
 
 
 # ─── Sync Logic ───
 
-# Map MC board IDs to AgentLoop project slugs
-BOARD_PROJECT_MAP = {
-    "f961ea63-1619-47e1-9925-c54bcae17a08": "playdel",
-    "2d7eb924-ae02-428c-beee-e148830b0cae": "blackcat",
-    "3221facb-38eb-4539-9159-7d55df200e21": "mitheithel",
-    "5c2d5641-ce08-42ba-81f1-2e5c49d950ad": "problyx",
-    "c8ad0829-e973-4e74-9903-cf9361cd0d85": "gptstonks",
-    "c5c5dc10-e54b-4cce-92cc-2d3c07a3bf24": "polymarket-bot",
-}
+def _load_board_project_map() -> dict:
+    """Load board-to-project mapping from config.
+
+    Set AGENTLOOP_BOARD_MAP as a JSON string in .env, e.g.:
+    AGENTLOOP_BOARD_MAP={"uuid-1":"project-slug-1","uuid-2":"project-slug-2"}
+
+    Falls back to an empty dict if not configured.
+    """
+    import json
+    import os
+    raw = os.environ.get("AGENTLOOP_BOARD_MAP", "")
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Invalid AGENTLOOP_BOARD_MAP JSON, using empty map")
+    return {}
+
+
+# Lazy-loaded on first access
+BOARD_PROJECT_MAP = _load_board_project_map()
 
 
 def sync_tasks_for_project(board_id: str) -> List[dict]:
-    """Fetch all inbox/open tasks from MC for a project board.
-    
-    Returns list of task dicts that can feed into AgentLoop proposals.
-    """
+    """Fetch all inbox/open tasks from MC for a project board."""
     tasks = get_board_tasks(board_id)
-    # Filter to actionable tasks
-    actionable = [t for t in tasks if t.get("status") in ("inbox", "in_progress")]
-    return actionable
+    return [t for t in tasks if t.get("status") in ("inbox", "in_progress")]
 
 
 def mark_task_in_progress(board_id: str, task_id: str) -> bool:
@@ -114,10 +130,12 @@ def mark_task_done(board_id: str, task_id: str) -> bool:
     return result is not None
 
 
-def report_agent_activity(board_id: str, task_id: str, agent_name: str, action: str) -> bool:
-    """Log agent activity back to MC as a task comment/update."""
-    # MC may not have a comment endpoint, so we update the description
-    result = mc_patch(f"/api/v1/boards/{board_id}/tasks/{task_id}", {
-        "description": f"[AgentLoop] {agent_name}: {action}",
-    })
+def report_agent_activity(
+    board_id: str, task_id: str, agent_name: str, action: str
+) -> bool:
+    """Log agent activity back to MC as a task comment."""
+    result = mc_post(
+        f"/api/v1/boards/{board_id}/tasks/{task_id}/comments",
+        {"content": f"[AgentLoop] {agent_name}: {action}"},
+    )
     return result is not None

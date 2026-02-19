@@ -1,5 +1,7 @@
 """Simulation API — drives agent behavior, movement, and MC sync."""
 
+import asyncio
+import logging
 import random
 import time
 from typing import Optional
@@ -18,6 +20,8 @@ from ..integrations.mission_control import (
     sync_tasks_for_project, mark_task_in_progress, mark_task_done,
     get_boards, BOARD_PROJECT_MAP,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 
@@ -100,7 +104,11 @@ def simulation_tick(session: Session = Depends(get_session)):
                     updates.append({"agent": agent.name, "action": "back_to_desk"})
     
     session.commit()
-    
+
+    # Broadcast agent state updates to WebSocket clients
+    if updates:
+        _broadcast_agent_states(agents)
+
     return {
         "status": "ok",
         "timestamp": time.time(),
@@ -172,10 +180,44 @@ def demo_activity(session: Session = Depends(get_session)):
     if random.random() < 0.2:
         send_to_meeting([a.id for a in agents], session)
         actions_taken = [{"agent": a.name, "action": "meeting"} for a in agents]
-    
+
     session.commit()
-    
+
+    # Broadcast updates
+    if actions_taken:
+        _broadcast_agent_states(agents)
+
     return {
         "status": "ok",
         "actions": actions_taken,
     }
+
+
+def _broadcast_agent_states(agents):
+    """Push current agent states to all WebSocket clients."""
+    try:
+        from ..api.websocket import broadcast
+
+        agent_data = [
+            {
+                "id": str(a.id),
+                "name": a.name,
+                "role": a.role,
+                "status": a.status.value,
+                "position_x": a.position_x,
+                "position_y": a.position_y,
+                "target_x": a.target_x,
+                "target_y": a.target_y,
+                "current_action": a.current_action.value,
+                "avatar": a.avatar,
+            }
+            for a in agents
+        ]
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(broadcast("agent.batch_update", {"agents": agent_data}))
+        except RuntimeError:
+            asyncio.run(broadcast("agent.batch_update", {"agents": agent_data}))
+    except Exception as e:
+        logger.debug("WebSocket broadcast failed (non-critical): %s", e)

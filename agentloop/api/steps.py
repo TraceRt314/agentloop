@@ -9,7 +9,7 @@ from sqlmodel import Session
 from sqlmodel import select
 
 from ..database import get_session
-from ..models import Step, StepStatus
+from ..models import Mission, Step, StepStatus
 from ..schemas import (
     Step as StepSchema,
     StepClaim,
@@ -133,7 +133,7 @@ def claim_step(
     event_data = EventCreate(
         event_type="step.claimed",
         source_agent_id=claim_data.agent_id,
-        project_id=(session.get(step.mission.project_id)),  # Get project_id from mission
+        project_id=session.get(Mission, step.mission_id).project_id,
         payload={
             "step_id": str(step.id),
             "mission_id": str(step.mission_id),
@@ -175,8 +175,7 @@ def complete_step(
     
     # Create event for step completed
     from ..api.events import create_event
-    # Get project_id through mission relationship
-    mission = session.get(step.mission)
+    mission = session.get(Mission, step.mission_id)
     event_data = EventCreate(
         event_type="step.completed",
         source_agent_id=step.claimed_by_agent_id,
@@ -223,8 +222,7 @@ def fail_step(
     
     # Create event for step failed
     from ..api.events import create_event
-    # Get project_id through mission relationship
-    mission = session.get(step.mission)
+    mission = session.get(Mission, step.mission_id)
     event_data = EventCreate(
         event_type="step.failed",
         source_agent_id=step.claimed_by_agent_id,
