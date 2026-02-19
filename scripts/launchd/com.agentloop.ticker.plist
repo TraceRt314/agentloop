@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agentloop.ticker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__PROJECT__/scripts/ticker.sh</string>
+        <string>15</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>AGENTLOOP_API_BASE_URL</key>
+        <string>http://localhost:8080</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOGS__/agentloop-ticker.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__LOGS__/agentloop-ticker.err</string>
+</dict>
+</plist>

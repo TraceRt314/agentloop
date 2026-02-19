@@ -1,19 +1,38 @@
 #!/bin/bash
-# AgentLoop simulation ticker — runs in background
-# Calls simulation/tick + simulation/demo every N seconds
+# AgentLoop daemon ticker — calls simulation, orchestrator, and MC sync
+# Usage: ./ticker.sh [interval_seconds]
 
-API="http://localhost:8080"
-INTERVAL=${1:-15}  # Default: 15 seconds
+API="${AGENTLOOP_API_BASE_URL:-http://localhost:8080}"
+INTERVAL=${1:-15}
+TICK_COUNT=0
+SYNC_EVERY=20  # MC sync every N ticks (~5 min at 15s interval)
+ORCH_EVERY=4   # Orchestrator tick every N ticks (~1 min at 15s interval)
 
-echo "🔄 AgentLoop ticker started (interval: ${INTERVAL}s)"
-echo "   API: $API"
-echo "   Press Ctrl+C to stop"
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+log "AgentLoop ticker started (interval: ${INTERVAL}s)"
+log "API: $API"
 
 while true; do
+  TICK_COUNT=$((TICK_COUNT + 1))
+
+  # Simulation tick (every tick — animation)
   curl -s -X POST "$API/api/v1/simulation/tick" > /dev/null 2>&1
-  # Demo activity less frequently (every 3rd tick)
-  if [ $((RANDOM % 3)) -eq 0 ]; then
+
+  # Demo activity (every 3rd tick — idle agent movement)
+  if [ $((TICK_COUNT % 3)) -eq 0 ]; then
     curl -s -X POST "$API/api/v1/simulation/demo" > /dev/null 2>&1
   fi
+
+  # Orchestrator tick (every ORCH_EVERY ticks — process proposals/missions/steps)
+  if [ $((TICK_COUNT % ORCH_EVERY)) -eq 0 ]; then
+    curl -s -X POST "$API/api/v1/orchestrator/tick" > /dev/null 2>&1
+  fi
+
+  # MC sync (every SYNC_EVERY ticks — pull tasks, report completions)
+  if [ $((TICK_COUNT % SYNC_EVERY)) -eq 0 ]; then
+    curl -s -X POST "$API/api/v1/simulation/sync-mc" > /dev/null 2>&1
+  fi
+
   sleep "$INTERVAL"
 done

@@ -73,6 +73,21 @@ pnpm dev
 
 Open http://localhost:3002 to see the office.
 
+### Daemon mode (macOS)
+
+Run AgentLoop as a background service using LaunchAgents:
+
+```bash
+./scripts/install-launchd.sh install    # start on login
+./scripts/install-launchd.sh uninstall  # stop and remove
+```
+
+This installs two LaunchAgents:
+- **`com.agentloop.server`** — uvicorn backend on port 8080
+- **`com.agentloop.ticker`** — periodic simulation, orchestrator, and MC sync ticks
+
+Logs are written to `~/Library/Logs/AgentLoop/`.
+
 ### Docker
 
 ```bash
