@@ -363,11 +363,10 @@ class OrchestrationEngine:
                     missions.append(mission)
             
             session.commit()
-        
-        except Exception as e:
-            # Log error but don't fail the whole tick
-            pass
-        
+
+        except Exception:
+            logger.exception("Failed to create missions from proposals")
+
         return missions
     
     def _create_steps_from_missions(self, session: Session) -> List[Step]:
@@ -427,11 +426,10 @@ class OrchestrationEngine:
                     mission.status = MissionStatus.ACTIVE
             
             session.commit()
-        
-        except Exception as e:
-            # Log error but don't fail the whole tick
-            pass
-        
+
+        except Exception:
+            logger.exception("Failed to create steps from missions")
+
         return steps
     
     def _check_mission_completions(self, session: Session) -> List[Mission]:
@@ -472,11 +470,10 @@ class OrchestrationEngine:
                     self._report_mission_to_mc(mission, session)
             
             session.commit()
-        
-        except Exception as e:
-            # Log error but don't fail the whole tick
-            pass
-        
+
+        except Exception:
+            logger.exception("Failed to check mission completions")
+
         return completed_missions
     
     def _report_mission_to_mc(self, mission: Mission, session: Session) -> None:
@@ -609,9 +606,8 @@ class OrchestrationEngine:
                 actions += 1
             
             session.commit()
-        
-        except Exception as e:
-            # Log error but don't fail the whole tick
-            pass
-        
+
+        except Exception:
+            logger.exception("Failed to cleanup old data")
+
         return actions

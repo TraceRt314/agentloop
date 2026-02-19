@@ -1,5 +1,6 @@
 """Auto-approval and human-in-the-loop approval engine."""
 
+import logging
 from datetime import datetime
 from typing import List
 
@@ -7,6 +8,8 @@ from sqlmodel import Session
 from sqlmodel import select
 
 from ..models import Proposal, ProposalStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ApprovalEngine:
@@ -31,10 +34,9 @@ class ApprovalEngine:
             
             session.commit()
         
-        except Exception as e:
-            # Log error but don't fail the whole process
-            pass
-        
+        except Exception:
+            logger.exception("Failed to process pending approvals")
+
         return processed_proposals
     
     def _should_auto_approve(self, proposal: Proposal, session: Session) -> bool:
@@ -79,8 +81,9 @@ class ApprovalEngine:
             )
             
             return pending_proposals.all()
-        
-        except Exception as e:
+
+        except Exception:
+            logger.exception("Failed to fetch proposals needing human review")
             return []
     
     def approve_proposal(
@@ -100,10 +103,11 @@ class ApprovalEngine:
             
             session.commit()
             return True
-        
-        except Exception as e:
+
+        except Exception:
+            logger.exception("Failed to approve proposal %s", proposal.id)
             return False
-    
+
     def reject_proposal(
         self, 
         proposal: Proposal, 
@@ -126,6 +130,7 @@ class ApprovalEngine:
             
             session.commit()
             return True
-        
-        except Exception as e:
+
+        except Exception:
+            logger.exception("Failed to reject proposal %s", proposal.id)
             return False

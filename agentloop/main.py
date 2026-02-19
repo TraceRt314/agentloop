@@ -1,5 +1,7 @@
 """Main FastAPI application for AgentLoop."""
 
+import logging
+import sys
 import time
 from typing import Dict
 from uuid import UUID
@@ -10,9 +12,30 @@ from sqlmodel import Session
 
 from .api import agents, events, missions, projects, proposals, steps, triggers, websocket, simulation, dashboard
 from .config import settings
-from .database import create_db_and_tables, get_session
+from .database import create_db_and_tables, get_session, run_migrations
 from .engine.orchestrator import OrchestrationEngine
 from .schemas import OrchestrationResult, WorkCycleResult
+
+
+def _configure_logging() -> None:
+    """Set up application-level logging."""
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    fmt = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+    logging.basicConfig(
+        level=level,
+        format=fmt,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
+        force=True,
+    )
+    # Quiet noisy libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("watchfiles").setLevel(logging.WARNING)
+
+
+_configure_logging()
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -51,8 +74,7 @@ orchestrator = OrchestrationEngine()
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup."""
-    # Create database tables
-    create_db_and_tables()
+    run_migrations()
 
 
 @app.get("/")

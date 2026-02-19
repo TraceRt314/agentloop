@@ -69,6 +69,7 @@ class WorkerEngine:
             required = step_capability_map.get(step.step_type.value, "general_work")
             return required in capabilities or "general_work" in capabilities
         except Exception:
+            logger.debug("Could not check capabilities for agent %s, allowing step", agent.name)
             return True
 
     def _load_agent_config(self, agent: Agent) -> Dict[str, Any]:
@@ -82,6 +83,7 @@ class WorkerEngine:
                     return config
             return agent.config
         except Exception:
+            logger.debug("Could not load YAML config for agent %s, using DB config", agent.role)
             return agent.config
 
     def _load_project_config(self, project_id: UUID, session: Session) -> Dict[str, Any]:
@@ -98,6 +100,7 @@ class WorkerEngine:
                     return config
             return project.config
         except Exception:
+            logger.debug("Could not load project config for %s, using empty config", project_id)
             return {}
 
     def _execute_step(
