@@ -45,6 +45,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "name": a.name,
                     "role": a.role,
                     "status": a.status.value,
+                    "project_id": str(a.project_id),
                     "position_x": a.position_x,
                     "position_y": a.position_y,
                     "target_x": a.target_x,

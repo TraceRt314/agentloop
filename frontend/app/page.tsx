@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useAgentWebSocket } from "@/lib/useWebSocket";
 import EventFeed from "@/components/EventFeed";
@@ -18,6 +18,12 @@ const IsometricOffice = dynamic(() => import("@/components/IsometricOffice"), {
   ),
 });
 
+interface ProjectInfo {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 type Tab = "office" | "tasks" | "chat" | "system";
 
 const TABS: { id: Tab; label: string }[] = [
@@ -30,6 +36,32 @@ const TABS: { id: Tab; label: string }[] = [
 export default function Home() {
   const { agents, events, connected } = useAgentWebSocket();
   const [activeTab, setActiveTab] = useState<Tab>("office");
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+
+  // Fetch projects on mount
+  useEffect(() => {
+    fetch("/api/v1/projects/")
+      .then((r) => r.json())
+      .then((data: ProjectInfo[]) => {
+        setProjects(data || []);
+        if (data?.length > 0 && !selectedProjectId) {
+          setSelectedProjectId(data[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Filter agents by selected project
+  const filteredAgents = useMemo(
+    () =>
+      selectedProjectId
+        ? agents.filter((a) => a.project_id === selectedProjectId)
+        : agents,
+    [agents, selectedProjectId],
+  );
+
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
   return (
     <div className="h-screen flex flex-col">
@@ -41,7 +73,18 @@ export default function Home() {
             <span className="ui-label text-sm tracking-widest text-slate-200">agentloop</span>
           </div>
           <span className="text-slate-700 text-xs">|</span>
-          <span className="text-[10px] text-slate-600">multi-agent orchestration</span>
+          {/* Project selector */}
+          <select
+            value={selectedProjectId}
+            onChange={(e) => setSelectedProjectId(e.target.value)}
+            className="bg-transparent border border-slate-800/50 rounded px-2 py-0.5 text-[10px] text-slate-400 outline-none focus:border-blue-500/40 transition cursor-pointer"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id} className="bg-slate-900">
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Tabs */}
@@ -66,7 +109,7 @@ export default function Home() {
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
             <span className="ui-label text-slate-500">{connected ? "live" : "offline"}</span>
           </div>
-          <div className="ui-label text-slate-600">{agents.length} agents</div>
+          <div className="ui-label text-slate-600">{filteredAgents.length} agents</div>
         </div>
       </header>
 
@@ -75,13 +118,13 @@ export default function Home() {
         {activeTab === "office" && (
           <>
             <aside className="w-52 shrink-0 border-r border-slate-800/40 p-3 bg-[#0f1419]/60 overflow-y-auto">
-              <StatusPanel agents={agents} connected={connected} />
+              <StatusPanel agents={filteredAgents} connected={connected} />
             </aside>
 
             <section className="flex-1 flex items-center justify-center p-4 relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-950/10 via-transparent to-purple-950/10" />
               <div className="relative z-10">
-                <IsometricOffice agents={agents} width={700} height={620} />
+                <IsometricOffice agents={filteredAgents} width={700} height={620} />
               </div>
             </section>
 

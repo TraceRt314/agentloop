@@ -3,6 +3,7 @@ export interface AgentState {
   name: string;
   role: string;
   status: "active" | "paused";
+  project_id: string;
   position_x: number;
   position_y: number;
   target_x: number;
