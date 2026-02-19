@@ -7,6 +7,7 @@ import EventFeed from "@/components/EventFeed";
 import StatusPanel from "@/components/StatusPanel";
 import TasksPanel from "@/components/TasksPanel";
 import SystemPanel from "@/components/SystemPanel";
+import ChatPanel from "@/components/ChatPanel";
 
 const IsometricOffice = dynamic(() => import("@/components/IsometricOffice"), {
   ssr: false,
@@ -17,11 +18,12 @@ const IsometricOffice = dynamic(() => import("@/components/IsometricOffice"), {
   ),
 });
 
-type Tab = "office" | "tasks" | "system";
+type Tab = "office" | "tasks" | "chat" | "system";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "office", label: "office" },
   { id: "tasks", label: "tasks" },
+  { id: "chat", label: "chat" },
   { id: "system", label: "system" },
 ];
 
@@ -92,6 +94,12 @@ export default function Home() {
         {activeTab === "tasks" && (
           <div className="flex-1 min-h-0 overflow-hidden">
             <TasksPanel />
+          </div>
+        )}
+
+        {activeTab === "chat" && (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ChatPanel />
           </div>
         )}
 
