@@ -95,7 +95,7 @@ def test_general_work_capability_matches_all(session):
     assert len(available) == 1
 
 
-@patch("agentloop.engine.worker.WorkerEngine._dispatch_to_gateway", return_value=False)
+@patch("agentloop.engine.worker.WorkerEngine._dispatch_to_backend", return_value=False)
 def test_simulate_step_execution_fallback(mock_dispatch, session):
     """When gateway is unavailable, step should be simulated."""
     project = make_project(session)

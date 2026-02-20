@@ -1,4 +1,4 @@
-"""Chat API — proxy to OpenClaw gateway with persistent history."""
+"""Chat API — proxy to pluggable chat backend with persistent history."""
 
 import logging
 from typing import List, Optional
@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from ..database import get_session
-from ..integrations.openclaw import gateway_client, GatewayError
 from ..models import ChatMessage, Project, ProjectContext
 from ..schemas import (
     ChatMessageCreate,
@@ -57,15 +56,22 @@ def _build_chat_prompt(
     return "\n".join(lines)
 
 
+def _get_chat_dispatcher():
+    """Lazily resolve the chat dispatcher from WorkerEngine."""
+    from ..engine.worker import WorkerEngine
+    return WorkerEngine._chat_dispatcher
+
+
 @router.post("/", response_model=ChatResponse)
 def send_message(
     data: ChatMessageCreate,
     session: Session = Depends(get_session),
 ):
-    """Send a chat message and get a response from OpenClaw."""
-    if not gateway_client.available:
+    """Send a chat message and get a response from the chat backend."""
+    dispatcher = _get_chat_dispatcher()
+    if dispatcher is None or not dispatcher.available:
         raise HTTPException(
-            status_code=503, detail="OpenClaw gateway not available"
+            status_code=503, detail="No chat backend configured"
         )
 
     session_id = data.session_id or str(uuid4())
@@ -104,17 +110,17 @@ def send_message(
     session.add(user_msg)
     session.flush()
 
-    # Dispatch to OpenClaw
+    # Dispatch to chat backend
     try:
-        result = gateway_client.run_agent(
+        result = dispatcher.send(
             session_id=f"agentloop-chat-{session_id}",
             message=full_prompt,
             timeout=120,
         )
-        response_text = gateway_client.extract_response_text(result)
+        response_text = dispatcher.extract_text(result)
         if not response_text:
             response_text = "(No response from agent)"
-    except GatewayError as e:
+    except Exception as e:
         logger.error("Chat dispatch failed: %s", e)
         response_text = f"Error communicating with the agent: {e}"
 

@@ -1,32 +1,26 @@
-"""Worker engine for executing agent work via OpenClaw gateway."""
+"""Worker engine for executing agent work via pluggable backends."""
 
 import logging
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..models import Agent, Event, Mission, Project, ProjectContext, Step, StepStatus
+from ..protocols import ChatDispatcher, StepDispatcher
 
 logger = logging.getLogger(__name__)
-
-
-@runtime_checkable
-class StepDispatcher(Protocol):
-    """Protocol for step dispatch backends (e.g. OpenClaw)."""
-
-    def dispatch(self, step_id: str, work_prompt: str, timeout: int,
-                 agent_config: Optional[Dict[str, Any]] = None) -> dict: ...
 
 
 class WorkerEngine:
     """Handles agent work execution and step processing."""
 
     _dispatcher: Optional[StepDispatcher] = None
+    _chat_dispatcher: Optional[ChatDispatcher] = None
     _plugin_manager = None
 
     def __init__(self):
@@ -37,6 +31,11 @@ class WorkerEngine:
     def set_dispatcher(cls, dispatcher: StepDispatcher) -> None:
         """Register an external step dispatcher."""
         cls._dispatcher = dispatcher
+
+    @classmethod
+    def set_chat_dispatcher(cls, dispatcher: ChatDispatcher) -> None:
+        """Register an external chat dispatcher."""
+        cls._chat_dispatcher = dispatcher
 
     @classmethod
     def set_plugin_manager(cls, pm) -> None:
@@ -151,8 +150,8 @@ class WorkerEngine:
                 step, agent, agent_config, project_config, session
             )
 
-            # Dispatch to OpenClaw agent (synchronous CLI call)
-            dispatched = self._dispatch_to_gateway(step, agent, work_prompt, agent_config)
+            # Dispatch to backend (via registered dispatcher)
+            dispatched = self._dispatch_to_backend(step, agent, work_prompt, agent_config)
 
             if dispatched:
                 # _dispatch_to_gateway already set step.status and output
@@ -201,40 +200,34 @@ class WorkerEngine:
             session.commit()
             return False
 
-    def _dispatch_to_gateway(self, step: Step, agent: Agent, work_prompt: str,
+    def _dispatch_to_backend(self, step: Step, agent: Agent, work_prompt: str,
                              agent_config: Optional[Dict[str, Any]] = None) -> bool:
-        """Send work to the OpenClaw agent via CLI subprocess.
+        """Send work to the registered step dispatcher.
 
-        The CLI runs synchronously — the agent processes the prompt and
-        returns the result as JSON. We parse the output and store it
-        directly on the step.
-
-        Returns True if execution succeeded, False otherwise.
+        Returns True if execution succeeded, False if no dispatcher
+        is registered or the dispatch failed.
         """
-        from ..integrations.openclaw import gateway_client, GatewayError
-
-        if not gateway_client.available:
-            logger.warning("openclaw CLI not available, skipping dispatch")
+        if self._dispatcher is None:
+            logger.debug("No step dispatcher registered, skipping dispatch")
             return False
 
         try:
-            result = gateway_client.dispatch_step(
+            result = self._dispatcher.dispatch(
                 step_id=str(step.id),
                 work_prompt=work_prompt,
                 timeout=settings.step_timeout_seconds,
                 agent_config=agent_config,
             )
 
-            # Extract agent response text and store as step output
-            response_text = gateway_client.extract_response_text(result)
             status = result.get("status", "unknown")
+            response_text = result.get("_response_text", "")
 
             if status == "ok" and response_text:
                 step.output = response_text
                 step.status = StepStatus.COMPLETED
                 step.completed_at = datetime.utcnow()
                 logger.info(
-                    "Step %s completed via openclaw agent (%d chars output)",
+                    "Step %s completed via dispatcher (%d chars output)",
                     step.id, len(response_text),
                 )
             elif status == "ok":
@@ -249,11 +242,8 @@ class WorkerEngine:
 
             return True
 
-        except GatewayError as e:
-            logger.error("Gateway dispatch failed for step %s: %s", step.id, e)
-            return False
         except Exception as e:
-            logger.exception("Unexpected error dispatching step %s: %s", step.id, e)
+            logger.error("Dispatch failed for step %s: %s", step.id, e)
             return False
 
     def _generate_work_prompt(

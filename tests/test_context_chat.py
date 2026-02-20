@@ -167,15 +167,26 @@ def test_delete_context_entry(client, session):
 # ─── Chat API ───
 
 
-@patch("agentloop.api.chat.gateway_client")
-def test_chat_send_message(mock_gw, client, session):
+def _install_mock_chat_dispatcher():
+    """Install a mock ChatDispatcher on WorkerEngine and return it."""
+    from agentloop.engine.worker import WorkerEngine
+
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.available = True
+    mock_dispatcher.send.return_value = {"status": "ok"}
+    mock_dispatcher.extract_text.return_value = "Hello from agent!"
+    WorkerEngine._chat_dispatcher = mock_dispatcher
+    return mock_dispatcher
+
+
+def _clear_chat_dispatcher():
+    from agentloop.engine.worker import WorkerEngine
+    WorkerEngine._chat_dispatcher = None
+
+
+def test_chat_send_message(client, session):
     """POST /api/v1/chat sends message and returns response."""
-    mock_gw.available = True
-    mock_gw.run_agent.return_value = {
-        "status": "ok",
-        "result": {"payloads": [{"text": "Hello from agent!"}]},
-    }
-    mock_gw.extract_response_text.return_value = "Hello from agent!"
+    mock_disp = _install_mock_chat_dispatcher()
 
     proj = make_project(session, slug="chat-proj")
 
@@ -189,22 +200,21 @@ def test_chat_send_message(mock_gw, client, session):
     assert data["assistant_message"]["content"] == "Hello from agent!"
     assert data["session_id"]
 
+    _clear_chat_dispatcher()
 
-@patch("agentloop.api.chat.gateway_client")
-def test_chat_gateway_unavailable(mock_gw, client):
-    """POST /api/v1/chat returns 503 when gateway unavailable."""
-    mock_gw.available = False
+
+def test_chat_gateway_unavailable(client):
+    """POST /api/v1/chat returns 503 when no chat dispatcher configured."""
+    _clear_chat_dispatcher()
 
     r = client.post("/api/v1/chat/", json={"content": "Hello"})
     assert r.status_code == 503
 
 
-@patch("agentloop.api.chat.gateway_client")
-def test_chat_history(mock_gw, client, session):
+def test_chat_history(client, session):
     """GET /api/v1/chat/history/{session_id} returns messages."""
-    mock_gw.available = True
-    mock_gw.run_agent.return_value = {"status": "ok", "result": {"payloads": [{"text": "Reply"}]}}
-    mock_gw.extract_response_text.return_value = "Reply"
+    mock_disp = _install_mock_chat_dispatcher()
+    mock_disp.extract_text.return_value = "Reply"
 
     r = client.post("/api/v1/chat/", json={"content": "First message"})
     sid = r.json()["session_id"]
@@ -215,13 +225,13 @@ def test_chat_history(mock_gw, client, session):
     assert r2.json()[0]["role"] == "user"
     assert r2.json()[1]["role"] == "assistant"
 
+    _clear_chat_dispatcher()
 
-@patch("agentloop.api.chat.gateway_client")
-def test_chat_sessions_list(mock_gw, client, session):
+
+def test_chat_sessions_list(client, session):
     """GET /api/v1/chat/sessions lists active sessions."""
-    mock_gw.available = True
-    mock_gw.run_agent.return_value = {"status": "ok", "result": {"payloads": [{"text": "ok"}]}}
-    mock_gw.extract_response_text.return_value = "ok"
+    mock_disp = _install_mock_chat_dispatcher()
+    mock_disp.extract_text.return_value = "ok"
 
     client.post("/api/v1/chat/", json={"content": "msg1"})
 
@@ -229,3 +239,5 @@ def test_chat_sessions_list(mock_gw, client, session):
     assert r.status_code == 200
     assert len(r.json()) >= 1
     assert r.json()[0]["message_count"] == 2
+
+    _clear_chat_dispatcher()
