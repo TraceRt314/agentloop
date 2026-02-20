@@ -8,6 +8,8 @@ import StatusPanel from "@/components/StatusPanel";
 import TasksPanel from "@/components/TasksPanel";
 import SystemPanel from "@/components/SystemPanel";
 import ChatPanel from "@/components/ChatPanel";
+import { pluginTabs, PluginTab } from "@/lib/plugin-registry";
+import { pluginComponents } from "@/lib/plugin-components";
 
 const IsometricOffice = dynamic(() => import("@/components/IsometricOffice"), {
   ssr: false,
@@ -24,20 +26,27 @@ interface ProjectInfo {
   slug: string;
 }
 
-type Tab = "office" | "tasks" | "chat" | "system";
+interface TabDef {
+  id: string;
+  label: string;
+  plugin?: string;
+}
 
-const TABS: { id: Tab; label: string }[] = [
+// Core tabs always present
+const CORE_TABS: TabDef[] = [
   { id: "office", label: "office" },
   { id: "tasks", label: "tasks" },
   { id: "chat", label: "chat" },
   { id: "system", label: "system" },
 ];
 
+
 export default function Home() {
   const { agents, events, connected } = useAgentWebSocket();
-  const [activeTab, setActiveTab] = useState<Tab>("office");
+  const [activeTab, setActiveTab] = useState<string>("office");
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [serverTabs, setServerTabs] = useState<PluginTab[]>([]);
 
   // Fetch projects on mount
   useEffect(() => {
@@ -52,6 +61,30 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
+  // Fetch plugin tabs from the backend
+  useEffect(() => {
+    fetch("/api/v1/plugins/tabs")
+      .then((r) => r.json())
+      .then((data: PluginTab[]) => setServerTabs(data || []))
+      .catch(() => {});
+  }, []);
+
+  // Merge core tabs with plugin tabs (deduplicate by id, plugins override core)
+  const allTabs = useMemo(() => {
+    // Start with core tabs
+    const merged = new Map<string, TabDef>();
+    for (const t of CORE_TABS) merged.set(t.id, t);
+
+    // Add plugin tabs (from static registry or server) that aren't core
+    const extraTabs = serverTabs.length > 0 ? serverTabs : pluginTabs;
+    for (const pt of extraTabs) {
+      if (!merged.has(pt.id)) {
+        merged.set(pt.id, { id: pt.id, label: pt.label, plugin: pt.plugin });
+      }
+    }
+    return Array.from(merged.values());
+  }, [serverTabs]);
+
   // Filter agents by selected project
   const filteredAgents = useMemo(
     () =>
@@ -62,6 +95,10 @@ export default function Home() {
   );
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+
+  // Find if the active tab is a plugin tab
+  const activeTabDef = allTabs.find((t) => t.id === activeTab);
+  const isPluginTab = activeTabDef?.plugin && !["office", "tasks", "chat", "system"].includes(activeTab);
 
   return (
     <div className="h-screen flex flex-col">
@@ -89,7 +126,7 @@ export default function Home() {
 
         {/* Tabs */}
         <div className="flex items-center gap-0.5 bg-slate-900/80 rounded-md p-0.5 border border-slate-800/50">
-          {TABS.map((tab) => (
+          {allTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -151,14 +188,22 @@ export default function Home() {
             <SystemPanel />
           </div>
         )}
+
+        {isPluginTab && pluginComponents[activeTab] && (() => {
+          const PluginComponent = pluginComponents[activeTab];
+          return (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <PluginComponent />
+            </div>
+          );
+        })()}
       </main>
 
       {/* Footer */}
       <footer className="shrink-0 flex items-center justify-between px-5 py-1.5 border-t border-slate-800/40 bg-[#0f1419]">
         <span className="ui-label text-slate-800" style={{ fontSize: 9 }}>agentloop v0.1.0</span>
         <div className="flex items-center gap-4">
-          <a href="http://localhost:8080/docs" target="_blank" className="ui-label text-slate-700 hover:text-slate-500 transition" style={{ fontSize: 9 }}>api docs</a>
-          <a href="http://localhost:3001" target="_blank" className="ui-label text-slate-700 hover:text-slate-500 transition" style={{ fontSize: 9 }}>mission control</a>
+          <a href="/docs" target="_blank" className="ui-label text-slate-700 hover:text-slate-500 transition" style={{ fontSize: 9 }}>api docs</a>
         </div>
       </footer>
     </div>

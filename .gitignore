@@ -32,3 +32,6 @@ Thumbs.db
 # Data
 data/
 *.sqlite3
+
+# Personal scripts
+scripts/seed_personal.py

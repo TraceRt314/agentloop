@@ -113,7 +113,7 @@ export default function ChatPanel() {
         <div className="flex items-center gap-2">
           <span className="ui-label text-blue-400">chat</span>
           <span className="text-slate-700 text-xs">|</span>
-          <span className="text-[10px] text-slate-600">openclaw agent</span>
+          <span className="text-[10px] text-slate-600">ai agent</span>
         </div>
         <button
           onClick={startNewSession}
