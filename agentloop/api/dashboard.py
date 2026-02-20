@@ -96,23 +96,27 @@ def dashboard_overview(session: Session = Depends(get_session)):
 
 @router.get("/system")
 def system_status():
-    """System health — check all services."""
+    """System health — check core services only."""
     import httpx
-    
-    gw_http = settings.openclaw_gateway_url.replace("ws://", "http://").replace("wss://", "https://")
+
     services = {
         "agentloop_api": {"url": f"{settings.api_base_url}/healthz", "status": "unknown"},
-        "mission_control": {"url": f"{settings.mc_base_url}/healthz", "status": "unknown"},
-        "openclaw_gateway": {"url": gw_http, "status": "unknown"},
     }
-    
+
+    # Only check optional services if configured
+    if getattr(settings, "mc_base_url", None) and settings.mc_base_url:
+        services["mission_control"] = {"url": f"{settings.mc_base_url}/healthz", "status": "unknown"}
+    if getattr(settings, "openclaw_gateway_url", None) and settings.openclaw_gateway_url:
+        gw_http = settings.openclaw_gateway_url.replace("ws://", "http://").replace("wss://", "https://")
+        services["openclaw_gateway"] = {"url": gw_http, "status": "unknown"}
+
     for name, svc in services.items():
         try:
             r = httpx.get(svc["url"], timeout=3)
             svc["status"] = "healthy" if r.status_code == 200 else f"error:{r.status_code}"
         except Exception:
             svc["status"] = "offline"
-    
+
     return {
         "timestamp": time.time(),
         "services": services,

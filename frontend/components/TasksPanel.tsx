@@ -65,7 +65,7 @@ export default function TasksPanel() {
 
   // Fetch boards
   useEffect(() => {
-    fetch("/api/v1/dashboard/mc/boards")
+    fetch("/api/v1/mc/boards")
       .then((r) => r.json())
       .then((d) => {
         setBoards(d.boards || []);
@@ -88,7 +88,7 @@ export default function TasksPanel() {
   useEffect(() => {
     if (!selectedBoard) return;
     setLoadingTasks(true);
-    fetch(`/api/v1/dashboard/mc/boards/${selectedBoard}/tasks`)
+    fetch(`/api/v1/mc/boards/${selectedBoard}/tasks`)
       .then((r) => r.json())
       .then((d) => {
         setTasks(d.tasks || []);
