@@ -65,6 +65,7 @@ class StepType(str, Enum):
     REVIEW = "review"
     DEPLOY = "deploy"
     RESEARCH = "research"
+    SECURITY = "security"
     OTHER = "other"
 
 

@@ -6,6 +6,8 @@ capabilities:
   - "create_proposal"
   - "review_mission"
 auto_approve_proposals: false  # PM proposals need human review by default
+openclaw_agent: "pm-agent"
+thinking: "low"
 work_prompt: |
   You are the Product Manager for {project_name}.
   

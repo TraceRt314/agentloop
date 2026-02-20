@@ -86,6 +86,17 @@ def seed(name: str, slug: str, description: str, repo_path: str, board_id: str):
                 "avatar": "deploy",
                 "config": {"auto_approve": False, "work_interval_minutes": 120},
             },
+            {
+                "name": "Shield",
+                "role": "security",
+                "description": "Reviews code for security vulnerabilities, validates access controls.",
+                "position_x": 230.0,
+                "position_y": 300.0,
+                "target_x": 230.0,
+                "target_y": 300.0,
+                "avatar": "security",
+                "config": {"auto_approve": False, "work_interval_minutes": 90},
+            },
         ]
 
         for data in agents_data:
@@ -106,6 +117,11 @@ def seed(name: str, slug: str, description: str, repo_path: str, board_id: str):
                 "action": {"type": "create_step", "step_type": "review", "assign_role": "quality_assurance", "title_template": "Review: {step_title}"},
             },
             {
+                "name": "security_on_code_complete",
+                "event_pattern": {"event_type": "step.completed", "conditions": {"step_type": "code"}},
+                "action": {"type": "create_step", "step_type": "security", "assign_role": "security", "title_template": "Security review: {step_title}"},
+            },
+            {
                 "name": "mission_complete_check",
                 "event_pattern": {"event_type": "step.completed"},
                 "action": {"type": "evaluate_mission_completion"},
@@ -122,7 +138,7 @@ def seed(name: str, slug: str, description: str, repo_path: str, board_id: str):
             session.add(trigger)
 
         session.commit()
-        print(f"Seeded: {name} project + 4 agents (Luna, Spark, Sage, Bolt) + 2 triggers")
+        print(f"Seeded: {name} project + 5 agents (Luna, Spark, Sage, Bolt, Shield) + 3 triggers")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ capabilities:
   - "rollback_deployments"
   - "general_work"
 auto_approve_proposals: false  # Deployment proposals need careful review
+openclaw_agent: "deployer-agent"
+thinking: "medium"
 work_prompt: |
   You are the Deployer for {project_name}.
   

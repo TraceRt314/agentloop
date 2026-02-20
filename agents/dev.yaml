@@ -8,6 +8,11 @@ capabilities:
   - "complete_step"
   - "general_work"
 auto_approve_proposals: true  # Dev can auto-approve tactical fixes
+openclaw_agent: "dev-agent"
+thinking: "medium"
+context_files:
+  - "CLAUDE.md"
+  - "docs/ARCHITECTURE.md"
 work_prompt: |
   You are the Developer for {project_name}.
   

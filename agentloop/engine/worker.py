@@ -4,7 +4,7 @@ import logging
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlmodel import Session, select
@@ -15,12 +15,33 @@ from ..models import Agent, Event, Mission, Project, ProjectContext, Step, StepS
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class StepDispatcher(Protocol):
+    """Protocol for step dispatch backends (e.g. OpenClaw)."""
+
+    def dispatch(self, step_id: str, work_prompt: str, timeout: int,
+                 agent_config: Optional[Dict[str, Any]] = None) -> dict: ...
+
+
 class WorkerEngine:
     """Handles agent work execution and step processing."""
+
+    _dispatcher: Optional[StepDispatcher] = None
+    _plugin_manager = None
 
     def __init__(self):
         self.agents_dir = Path(settings.agents_dir)
         self.projects_dir = Path(settings.projects_dir)
+
+    @classmethod
+    def set_dispatcher(cls, dispatcher: StepDispatcher) -> None:
+        """Register an external step dispatcher."""
+        cls._dispatcher = dispatcher
+
+    @classmethod
+    def set_plugin_manager(cls, pm) -> None:
+        """Register the plugin manager for hook dispatch."""
+        cls._plugin_manager = pm
 
     def find_and_execute_work(self, agent: Agent, session: Session) -> bool:
         """Find and execute available work for an agent."""
@@ -64,6 +85,7 @@ class WorkerEngine:
                 "review": "review_code",
                 "deploy": "deploy_code",
                 "research": "research",
+                "security": "security_audit",
                 "other": "general_work",
             }
             required = step_capability_map.get(step.step_type.value, "general_work")
@@ -130,7 +152,7 @@ class WorkerEngine:
             )
 
             # Dispatch to OpenClaw agent (synchronous CLI call)
-            dispatched = self._dispatch_to_gateway(step, agent, work_prompt)
+            dispatched = self._dispatch_to_gateway(step, agent, work_prompt, agent_config)
 
             if dispatched:
                 # _dispatch_to_gateway already set step.status and output
@@ -153,9 +175,21 @@ class WorkerEngine:
                 )
                 session.add(event)
                 session.commit()
+
+                # Plugin hook: step completed/failed
+                if self._plugin_manager:
+                    self._plugin_manager.dispatch_hook(
+                        "on_step_complete", session=session, step=step, agent=agent,
+                    )
             else:
                 logger.warning("Gateway dispatch failed, falling back to simulated execution")
                 self._simulate_step_execution(step, work_prompt, session)
+
+                # Plugin hook after simulation too
+                if self._plugin_manager:
+                    self._plugin_manager.dispatch_hook(
+                        "on_step_complete", session=session, step=step, agent=agent,
+                    )
 
             return True
 
@@ -167,7 +201,8 @@ class WorkerEngine:
             session.commit()
             return False
 
-    def _dispatch_to_gateway(self, step: Step, agent: Agent, work_prompt: str) -> bool:
+    def _dispatch_to_gateway(self, step: Step, agent: Agent, work_prompt: str,
+                             agent_config: Optional[Dict[str, Any]] = None) -> bool:
         """Send work to the OpenClaw agent via CLI subprocess.
 
         The CLI runs synchronously — the agent processes the prompt and
@@ -187,6 +222,7 @@ class WorkerEngine:
                 step_id=str(step.id),
                 work_prompt=work_prompt,
                 timeout=settings.step_timeout_seconds,
+                agent_config=agent_config,
             )
 
             # Extract agent response text and store as step output
@@ -246,6 +282,23 @@ class WorkerEngine:
                     lines.append(f"[{e.category}/{e.key}] {e.content}")
                 project_knowledge = "\n".join(lines)
 
+        # Read context files from repo
+        context_files_content = ""
+        context_files = agent_config.get("context_files", [])
+        if context_files and project and project.repo_path:
+            repo = Path(project.repo_path)
+            lines = ["--- Context Files ---"]
+            for rel_path in context_files:
+                full_path = repo / rel_path
+                if full_path.exists() and full_path.is_file():
+                    try:
+                        content = full_path.read_text()[:5000]
+                        lines.append(f"\n### {rel_path}\n{content}")
+                    except Exception:
+                        lines.append(f"\n### {rel_path}\n[Could not read file]")
+            if len(lines) > 1:
+                context_files_content = "\n".join(lines)
+
         context = {
             "project_name": project.name if project else "Unknown",
             "project_description": project.description if project else "",
@@ -256,6 +309,8 @@ class WorkerEngine:
             "step_description": step.description,
             "step_type": step.step_type.value,
             "project_knowledge": project_knowledge,
+            "context_files_content": context_files_content,
+            "system_prompt": agent_config.get("system_prompt", ""),
         }
 
         work_prompt_template = agent_config.get(
@@ -293,6 +348,7 @@ class WorkerEngine:
             "test": f"Testing complete for: {step.title}\n\nTest results:\n- All tests passing\n- Coverage adequate\n- No issues found",
             "review": f"Code review complete for: {step.title}\n\nReview summary:\n- Code quality good\n- Best practices followed\n- Approved for deployment",
             "deploy": f"Deployment complete for: {step.title}\n\nDeployment summary:\n- Successfully deployed\n- Services running\n- Monitoring active",
+            "security": f"Security review complete for: {step.title}\n\nFindings:\n- No critical vulnerabilities found\n- Input validation adequate\n- No hardcoded secrets detected",
             "other": f"Task complete: {step.title}\n\nWork summary:\n- Objectives achieved\n- Deliverables ready",
         }
 

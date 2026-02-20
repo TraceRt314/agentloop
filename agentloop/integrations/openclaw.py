@@ -52,6 +52,8 @@ class GatewayClient:
         session_id: str,
         message: str,
         timeout: int = None,
+        openclaw_agent: Optional[str] = None,
+        thinking: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run the openclaw agent CLI and return parsed JSON result.
 
@@ -59,6 +61,8 @@ class GatewayClient:
             session_id: Unique session identifier for this execution.
             message: The prompt/instruction to send to the agent.
             timeout: Max seconds to wait (defaults to self.timeout).
+            openclaw_agent: Optional OpenClaw agent ID (--agent flag).
+            thinking: Optional thinking level: low|medium|high (--thinking flag).
 
         Returns:
             Parsed JSON response from the CLI.
@@ -78,6 +82,11 @@ class GatewayClient:
             "--message", message,
             "--json",
         ]
+
+        if openclaw_agent:
+            cmd.extend(["--agent", openclaw_agent])
+        if thinking:
+            cmd.extend(["--thinking", thinking])
 
         logger.info(
             "Dispatching to openclaw agent: session=%s timeout=%ds",
@@ -139,6 +148,7 @@ class GatewayClient:
         step_id: str,
         work_prompt: str,
         timeout: int = None,
+        agent_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Dispatch a step for execution via the CLI.
 
@@ -146,12 +156,16 @@ class GatewayClient:
             step_id: The AgentLoop step UUID.
             work_prompt: Full prompt including callback instructions.
             timeout: Max seconds to wait.
+            agent_config: Optional agent YAML config with openclaw_agent/thinking.
 
         Returns:
             Parsed JSON response from the agent.
         """
         session_id = self.step_session_key(step_id)
-        return self.run_agent(session_id, work_prompt, timeout=timeout)
+        openclaw_agent = (agent_config or {}).get("openclaw_agent")
+        thinking = (agent_config or {}).get("thinking")
+        return self.run_agent(session_id, work_prompt, timeout=timeout,
+                              openclaw_agent=openclaw_agent, thinking=thinking)
 
     def health_check(self) -> bool:
         """Quick check: is the openclaw CLI available and responsive?"""

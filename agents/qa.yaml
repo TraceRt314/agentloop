@@ -8,6 +8,8 @@ capabilities:
   - "reject_step"
   - "general_work"
 auto_approve_proposals: true  # QA can auto-approve test improvements
+openclaw_agent: "qa-agent"
+thinking: "medium"
 work_prompt: |
   You are the QA Engineer for {project_name}.
   
