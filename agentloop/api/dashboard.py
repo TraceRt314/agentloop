@@ -1,4 +1,4 @@
-"""Dashboard API — unified view of MC tasks, agents, missions, system status."""
+"""Dashboard API — unified view of agents, missions, system status."""
 
 import time
 from typing import Optional
@@ -12,9 +12,6 @@ from ..models import (
     Mission, MissionStatus, Step, StepStatus, Event,
 )
 from ..config import settings
-from ..integrations.mission_control import (
-    get_boards, get_board_tasks, BOARD_PROJECT_MAP, mc_get,
-)
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -95,40 +92,6 @@ def dashboard_overview(session: Session = Depends(get_session)):
             for e in recent_events
         ],
     }
-
-
-@router.get("/mc/boards")
-def mc_boards():
-    """Proxy — get all Mission Control boards with task counts."""
-    boards = get_boards()
-    result = []
-    for b in boards:
-        board_id = b.get("id", "")
-        tasks = get_board_tasks(board_id)
-        project_slug = BOARD_PROJECT_MAP.get(board_id, "unknown")
-        
-        # Count by status
-        status_counts = {}
-        for t in tasks:
-            s = t.get("status", "unknown")
-            status_counts[s] = status_counts.get(s, 0) + 1
-        
-        result.append({
-            "id": board_id,
-            "name": b.get("name", ""),
-            "description": b.get("description", ""),
-            "project_slug": project_slug,
-            "task_count": len(tasks),
-            "status_counts": status_counts,
-        })
-    return {"boards": result}
-
-
-@router.get("/mc/boards/{board_id}/tasks")
-def mc_board_tasks(board_id: str):
-    """Proxy — get tasks for a specific MC board."""
-    tasks = get_board_tasks(board_id)
-    return {"board_id": board_id, "tasks": tasks, "total": len(tasks)}
 
 
 @router.get("/system")

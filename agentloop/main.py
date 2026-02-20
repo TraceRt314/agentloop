@@ -14,6 +14,7 @@ from .api import agents, chat, context, events, missions, projects, proposals, s
 from .config import settings
 from .database import create_db_and_tables, engine, get_session, run_migrations
 from .engine.orchestrator import OrchestrationEngine
+from .plugin import PluginManager
 from .schemas import OrchestrationResult, WorkCycleResult
 
 
@@ -69,8 +70,20 @@ app.include_router(dashboard.router)
 app.include_router(context.router)
 app.include_router(chat.router)
 
+# Plugin manager
+plugin_manager = PluginManager(
+    plugins_dir=settings.plugins_dir,
+    enabled=settings.enabled_plugins,
+)
+plugin_manager.load_all()
+plugin_manager.register_routes(app)
+
+# Wire plugin manager to worker engine
+from .engine.worker import WorkerEngine
+WorkerEngine.set_plugin_manager(plugin_manager)
+
 # Global orchestrator instance
-orchestrator = OrchestrationEngine()
+orchestrator = OrchestrationEngine(plugin_manager=plugin_manager)
 
 
 @app.on_event("startup")
@@ -78,31 +91,18 @@ async def startup_event():
     """Initialize the application on startup."""
     run_migrations()
 
-    # Wire SSE sync callback so new MC tasks trigger immediate sync
-    from .integrations.mc_streams import set_sync_callback, start_all_board_streams
+    # Create tables for plugin models (idempotent)
+    from sqlmodel import SQLModel
+    SQLModel.metadata.create_all(engine)
 
-    def _sync_board(board_id: str) -> None:
-        """Trigger an orchestrator tick when SSE detects a new task."""
-        try:
-            with Session(engine) as session:
-                orchestrator._sync_mission_control(session)
-        except Exception:
-            logger.warning("SSE-triggered sync failed for board %s", board_id)
-
-    set_sync_callback(_sync_board)
-
-    # Start SSE listeners for Mission Control boards
-    try:
-        await start_all_board_streams()
-    except Exception:
-        logger.warning("Could not start MC SSE streams (will fall back to polling)")
+    # Dispatch plugin startup hooks
+    plugin_manager.dispatch_hook("on_startup", app=app)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    from .integrations.mc_streams import stop_all_streams
-    await stop_all_streams()
+    plugin_manager.dispatch_hook("on_shutdown", app=app)
 
 
 @app.get("/")
@@ -124,8 +124,7 @@ async def health_check():
 
 @app.get("/api/v1/health")
 def deep_health_check(session: Session = Depends(get_session)):
-    """Deep health check: DB, MC, stuck missions, agent activity."""
-    from .integrations.mission_control import mc_get
+    """Deep health check: DB, stuck missions, agent activity, and plugin-specific checks."""
     from .models import Agent, AgentStatus, Mission, MissionStatus, Step, StepStatus
     from sqlmodel import select, func
     from datetime import datetime, timedelta
@@ -139,14 +138,16 @@ def deep_health_check(session: Session = Depends(get_session)):
     except Exception as e:
         checks["database"] = {"status": "error", "error": str(e)}
 
-    # 2. Mission Control connectivity
-    try:
-        result = mc_get("/healthz")
-        checks["mission_control"] = {
-            "status": "ok" if result else "unreachable",
-        }
-    except Exception as e:
-        checks["mission_control"] = {"status": "error", "error": str(e)}
+    # 2. Mission Control connectivity (only if plugin loaded)
+    if plugin_manager.has_plugin("mission-control"):
+        try:
+            from .integrations.mission_control import mc_get
+            result = mc_get("/healthz")
+            checks["mission_control"] = {
+                "status": "ok" if result else "unreachable",
+            }
+        except Exception as e:
+            checks["mission_control"] = {"status": "error", "error": str(e)}
 
     # 3. Stuck missions (failed steps, no pending)
     try:
@@ -185,13 +186,6 @@ def deep_health_check(session: Session = Depends(get_session)):
         }
     except Exception as e:
         checks["agents"] = {"status": "error", "error": str(e)}
-
-    # 5. SSE streams
-    from .integrations.mc_streams import _active_streams
-    checks["sse_streams"] = {
-        "active_boards": len(_active_streams),
-        "status": "ok" if _active_streams else "inactive",
-    }
 
     overall = "healthy"
     for c in checks.values():
@@ -242,6 +236,18 @@ async def orchestrator_status():
         "version": "0.1.0",
         "uptime": time.time(),
     }
+
+
+@app.get("/api/v1/plugins")
+async def list_plugins():
+    """List all loaded plugins."""
+    return plugin_manager.list_plugins()
+
+
+@app.get("/api/v1/plugins/tabs")
+async def plugin_tabs():
+    """Return frontend tab metadata from all plugins."""
+    return plugin_manager.get_frontend_tabs()
 
 
 # Admin/debug endpoints (only in debug mode)

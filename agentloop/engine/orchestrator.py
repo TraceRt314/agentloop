@@ -33,10 +33,11 @@ logger = logging.getLogger(__name__)
 
 class OrchestrationEngine:
     """Main orchestration engine that runs the closed-loop system."""
-    
-    def __init__(self):
+
+    def __init__(self, plugin_manager=None):
         self.approval_engine = ApprovalEngine()
         self.worker_engine = WorkerEngine()
+        self.plugin_manager = plugin_manager
     
     def tick(self, session: Optional[Session] = None) -> OrchestrationResult:
         """Run one orchestration cycle."""
@@ -63,12 +64,18 @@ class OrchestrationEngine:
         actions_executed = 0
         
         try:
-            # 0. Sync tasks from Mission Control → proposals
-            self._sync_mission_control(session)
+            # 0. Sync tasks from external sources (e.g. Mission Control)
+            if self.plugin_manager:
+                self.plugin_manager.dispatch_hook("on_tick_sync", session=session)
 
             # 1. Process pending approvals
             approval_results = self.approval_engine.process_pending_approvals(session)
             actions_executed += len(approval_results)
+            if self.plugin_manager and approval_results:
+                for proposal in approval_results:
+                    self.plugin_manager.dispatch_hook(
+                        "on_proposal_approved", session=session, proposal=proposal,
+                    )
             
             # 2. Evaluate triggers against recent events
             trigger_results = self._evaluate_triggers(session)
@@ -89,19 +96,23 @@ class OrchestrationEngine:
             completion_results = self._check_mission_completions(session)
             actions_executed += len(completion_results)
 
-            # 6. Escalate stuck missions to human
-            escalated = self._escalate_stuck_missions(session)
-            actions_executed += escalated
+            # 6. Escalate stuck missions (via plugin hook)
+            if self.plugin_manager:
+                self.plugin_manager.dispatch_hook("on_stuck_check", session=session)
 
             # 7. Cleanup old events and expired proposals
             cleanup_results = self._cleanup_old_data(session)
             actions_executed += cleanup_results
-            
+
+            # 8. Dispatch plugin hook
+            if self.plugin_manager:
+                self.plugin_manager.dispatch_hook("on_tick", session=session)
+
         except Exception as e:
             errors.append(f"Orchestration tick failed: {str(e)}")
-        
+
         duration_ms = (time.time() - start_time) * 1000
-        
+
         return OrchestrationResult(
             triggers_evaluated=triggers_evaluated,
             triggers_fired=triggers_fired,
@@ -470,9 +481,12 @@ class OrchestrationEngine:
                     )
                     session.add(event)
 
-                    # Report completion back to MC
-                    self._report_mission_to_mc(mission, session)
-            
+                    # Plugin hook
+                    if self.plugin_manager:
+                        self.plugin_manager.dispatch_hook(
+                            "on_mission_complete", session=session, mission=mission,
+                        )
+
             session.commit()
 
         except Exception:
@@ -480,178 +494,6 @@ class OrchestrationEngine:
 
         return completed_missions
     
-    def _report_mission_to_mc(self, mission: Mission, session: Session) -> None:
-        """Report a completed mission back to Mission Control."""
-        from ..integrations.mission_control import (
-            report_agent_activity, update_task_status,
-        )
-
-        proposal = session.get(Proposal, mission.proposal_id)
-        if not proposal or not proposal.mc_task_id or not proposal.mc_board_id:
-            return
-
-        agent_name = "AgentLoop"
-        if mission.assigned_agent_id:
-            agent = session.get(Agent, mission.assigned_agent_id)
-            if agent:
-                agent_name = agent.name
-
-        try:
-            report_agent_activity(
-                proposal.mc_board_id,
-                proposal.mc_task_id,
-                agent_name,
-                f"Mission completed: {mission.title}",
-            )
-            update_task_status(
-                proposal.mc_board_id,
-                proposal.mc_task_id,
-                "review",
-                comment=f"Completed by {agent_name} via AgentLoop.",
-            )
-        except Exception as e:
-            logger.warning("MC outbound report failed for mission %s: %s", mission.id, e)
-
-    def _sync_mission_control(self, session: Session) -> None:
-        """Sync tasks from Mission Control into proposals (inbound only).
-
-        The full bidirectional endpoint lives at ``/api/v1/simulation/sync-mc``.
-        This light version runs each orchestrator tick to pull new tasks.
-        """
-        from ..integrations.mission_control import (
-            BOARD_PROJECT_MAP, sync_tasks_for_project,
-        )
-        from ..models import AgentStatus, ProjectStatus, ProposalPriority, ProposalStatus, Project
-
-        if not BOARD_PROJECT_MAP:
-            return
-
-        for board_id, project_slug in BOARD_PROJECT_MAP.items():
-            try:
-                project = session.exec(
-                    select(Project).where(Project.slug == project_slug)
-                ).first()
-                if not project:
-                    continue
-                if project.status == ProjectStatus.DECOMMISSIONED:
-                    continue
-
-                default_agent = session.exec(
-                    select(Agent)
-                    .where(Agent.project_id == project.id)
-                    .where(Agent.status == AgentStatus.ACTIVE)
-                ).first()
-                if not default_agent:
-                    continue
-
-                tasks = sync_tasks_for_project(board_id)
-                for task in tasks:
-                    mc_task_id = task.get("id", "")
-                    if not mc_task_id:
-                        continue
-
-                    existing = session.exec(
-                        select(Proposal).where(Proposal.mc_task_id == mc_task_id)
-                    ).first()
-                    if existing:
-                        continue
-
-                    mc_priority = task.get("priority", "medium").lower()
-                    priority_map = {
-                        "critical": ProposalPriority.CRITICAL,
-                        "high": ProposalPriority.HIGH,
-                        "medium": ProposalPriority.MEDIUM,
-                        "low": ProposalPriority.LOW,
-                    }
-                    priority = priority_map.get(mc_priority, ProposalPriority.MEDIUM)
-
-                    proposal = Proposal(
-                        agent_id=default_agent.id,
-                        project_id=project.id,
-                        title=task.get("title", "Untitled MC Task"),
-                        description=task.get("description", ""),
-                        rationale=f"Synced from Mission Control task {mc_task_id}",
-                        priority=priority,
-                        status=ProposalStatus.PENDING,
-                        auto_approve=priority in (ProposalPriority.CRITICAL, ProposalPriority.HIGH),
-                        mc_task_id=mc_task_id,
-                        mc_board_id=board_id,
-                    )
-                    session.add(proposal)
-
-                session.commit()
-            except Exception as e:
-                logger.warning("MC sync for board %s failed: %s", board_id, e)
-
-    def _escalate_stuck_missions(self, session: Session) -> int:
-        """Detect missions with failed steps and escalate to human via MC.
-
-        A mission is considered stuck when at least one step is FAILED
-        and no steps are currently RUNNING or PENDING.
-        """
-        from ..integrations.mission_control import ask_user
-
-        escalated = 0
-        try:
-            active_missions = session.exec(
-                select(Mission).where(Mission.status == MissionStatus.ACTIVE)
-            ).all()
-
-            for mission in active_missions:
-                steps = session.exec(
-                    select(Step).where(Step.mission_id == mission.id)
-                ).all()
-                if not steps:
-                    continue
-
-                has_failed = any(s.status == StepStatus.FAILED for s in steps)
-                has_pending = any(
-                    s.status in (StepStatus.PENDING, StepStatus.RUNNING, StepStatus.CLAIMED)
-                    for s in steps
-                )
-
-                if has_failed and not has_pending:
-                    # Find the MC board for this mission
-                    proposal = session.get(Proposal, mission.proposal_id)
-                    if not proposal or not proposal.mc_board_id:
-                        continue
-
-                    failed_step = next(s for s in steps if s.status == StepStatus.FAILED)
-                    msg = (
-                        f"Mission '{mission.title}' is stuck.\n"
-                        f"Failed step: {failed_step.title} ({failed_step.step_type.value})\n"
-                        f"Error: {failed_step.error or 'unknown'}\n\n"
-                        f"Please advise: retry, skip, or cancel?"
-                    )
-                    result = ask_user(
-                        proposal.mc_board_id,
-                        msg,
-                        correlation_id=f"stuck-mission-{mission.id}",
-                    )
-                    if result:
-                        logger.info(
-                            "Escalated stuck mission %s to human via MC", mission.id
-                        )
-                        # Record escalation event
-                        event = Event(
-                            event_type="mission.escalated",
-                            project_id=mission.project_id,
-                            source_agent_id=mission.assigned_agent_id,
-                            payload={
-                                "mission_id": str(mission.id),
-                                "failed_step_id": str(failed_step.id),
-                                "reason": "stuck_failed_steps",
-                            },
-                        )
-                        session.add(event)
-                        escalated += 1
-
-            if escalated:
-                session.commit()
-        except Exception:
-            logger.exception("Failed to escalate stuck missions")
-        return escalated
-
     def _cleanup_old_data(self, session: Session) -> int:
         """Clean up old events and expired proposals."""
         actions = 0

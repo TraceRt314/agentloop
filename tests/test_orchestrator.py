@@ -116,7 +116,7 @@ def test_mission_not_completed_with_pending_steps(session):
 
 @patch("agentloop.integrations.mission_control.ask_user", return_value={"id": "mock"})
 def test_escalate_stuck_missions(mock_ask, session):
-    """Stuck missions (failed steps, none pending) should be escalated."""
+    """Stuck missions should be escalated via the on_stuck_check hook."""
     project = make_project(session)
     agent = make_agent(session, project)
     proposal = make_proposal(
@@ -130,7 +130,31 @@ def test_escalate_stuck_missions(mock_ask, session):
     mission = make_mission(session, proposal, project, agent)
     make_step(session, mission, order_index=0, status=StepStatus.FAILED, error="timeout")
 
-    orch = OrchestrationEngine()
+    # Import the MC plugin hook and wire it into a mock plugin manager
+    from unittest.mock import MagicMock
+    from agentloop.plugin import PluginManager
+
+    pm = MagicMock(spec=PluginManager)
+
+    # When on_stuck_check is dispatched, call the real MC hook
+    import importlib
+    import sys
+
+    # Import the plugin hook module directly
+    spec = importlib.util.spec_from_file_location(
+        "mc_hooks", "plugins/mission-control/hooks.py"
+    )
+    mc_hooks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mc_hooks)
+
+    def _dispatch_hook(name, **kwargs):
+        if name == "on_stuck_check":
+            mc_hooks.on_stuck_check(**kwargs)
+        return []
+
+    pm.dispatch_hook.side_effect = _dispatch_hook
+
+    orch = OrchestrationEngine(plugin_manager=pm)
     result = orch.tick(session)
 
     mock_ask.assert_called_once()
