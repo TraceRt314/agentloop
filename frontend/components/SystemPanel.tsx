@@ -7,6 +7,23 @@ interface ServiceStatus {
   status: string;
 }
 
+interface ProviderHealth {
+  provider: string;
+  model: string;
+  base_url: string;
+  source: string;
+  status: string;
+}
+
+interface AgentHealth {
+  id: string;
+  name: string;
+  role: string;
+  provider: string;
+  model: string;
+  status: string;
+}
+
 interface DashboardOverview {
   agents: { name: string; role: string; current_action: string }[];
   projects: { name: string; slug: string }[];
@@ -18,14 +35,17 @@ interface DashboardOverview {
 export default function SystemPanel() {
   const [services, setServices] = useState<Record<string, ServiceStatus>>({});
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [providers, setProviders] = useState<ProviderHealth[]>([]);
+  const [healthAgents, setHealthAgents] = useState<AgentHealth[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [sysRes, overRes] = await Promise.all([
+        const [sysRes, overRes, healthRes] = await Promise.all([
           fetch("/api/v1/dashboard/system"),
           fetch("/api/v1/dashboard/overview"),
+          fetch("/api/v1/dashboard/health"),
         ]);
         if (sysRes.ok) {
           const d = await sysRes.json();
@@ -33,6 +53,11 @@ export default function SystemPanel() {
         }
         if (overRes.ok) {
           setOverview(await overRes.json());
+        }
+        if (healthRes.ok) {
+          const h = await healthRes.json();
+          setProviders(h.providers || []);
+          setHealthAgents(h.agents || []);
         }
       } catch { /* ignore */ }
       setLoading(false);
@@ -77,6 +102,52 @@ export default function SystemPanel() {
           })}
         </div>
       </div>
+
+      {/* LLM Providers */}
+      {providers.length > 0 && (
+        <div>
+          <div className="ui-label text-slate-500 mb-3">llm providers</div>
+          <div className="grid grid-cols-3 gap-2">
+            {providers.map((p) => {
+              const ok = p.status === "healthy";
+              return (
+                <div
+                  key={`${p.provider}-${p.model}`}
+                  className={`px-3 py-2.5 rounded-md border ${
+                    ok ? "border-green-500/15 bg-green-500/5" : "border-red-500/15 bg-red-500/5"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${ok ? "bg-green-500" : "bg-red-500"}`} />
+                    <span className="text-xs text-slate-300">{p.provider}</span>
+                    {p.source === "global" && (
+                      <span className="text-[8px] text-slate-700 ui-label">global</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-500">{p.model}</div>
+                  <div className="text-[9px] text-slate-700 truncate mt-0.5">{p.base_url}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Agent LLM config */}
+      {healthAgents.length > 0 && (
+        <div>
+          <div className="ui-label text-slate-500 mb-3">agent configurations</div>
+          <div className="grid grid-cols-4 gap-2">
+            {healthAgents.map((a) => (
+              <div key={a.id} className="px-3 py-2 rounded-md border border-slate-800/30 bg-slate-800/10 text-center">
+                <div className="text-xs text-slate-300">{a.name}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">{a.role.replace("_", " ")}</div>
+                <div className="text-[9px] text-slate-500 mt-1">{a.provider}/{a.model}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {overview && (
         <>
