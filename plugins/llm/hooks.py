@@ -16,12 +16,14 @@ class LLMStepDispatcher:
 
     def dispatch(self, step_id: str, work_prompt: str, timeout: int,
                  agent_config: Optional[Dict[str, Any]] = None) -> dict:
-        from .provider import get_provider
+        from .provider import for_config, get_provider
 
-        provider = get_provider()
-        system = None
         if agent_config:
+            provider = for_config(agent_config)
             system = agent_config.get("system_prompt")
+        else:
+            provider = get_provider()
+            system = None
 
         try:
             text = provider.chat(prompt=work_prompt, system=system)
