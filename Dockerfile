@@ -3,10 +3,8 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir .
-
 COPY . .
+RUN pip install --no-cache-dir .
 
 # ─── Stage 2: Runtime ───
 FROM python:3.12-slim
