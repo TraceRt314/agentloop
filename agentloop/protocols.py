@@ -22,6 +22,7 @@ class ChatDispatcher(Protocol):
     @property
     def available(self) -> bool: ...
 
-    def stream_send(self, session_id: str, message: str) -> Iterator[str]:
+    def stream_send(self, session_id: str, message: str,
+                    provider: Optional[Any] = None) -> Iterator[str]:
         """Yield text chunks from a streaming chat response."""
         ...

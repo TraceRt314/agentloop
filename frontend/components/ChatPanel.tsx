@@ -53,6 +53,7 @@ export default function ChatPanel() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -104,6 +105,13 @@ export default function ChatPanel() {
     if (sidebarOpen) refreshSessions();
   }, [sidebarOpen, refreshSessions]);
 
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   // Auto-scroll on new messages
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -140,6 +148,10 @@ export default function ChatPanel() {
     ]);
 
     try {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const res = await fetch("/api/v1/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,6 +160,7 @@ export default function ChatPanel() {
           project_id: selectedProject || undefined,
           session_id: sessionId || undefined,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -228,7 +241,9 @@ export default function ChatPanel() {
       );
     } finally {
       setSending(false);
+      abortRef.current = null;
       inputRef.current?.focus();
+      if (sidebarOpen) refreshSessions();
     }
   };
 

@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func as sa_func
 from sqlmodel import Session, select
 
 from ..database import get_session
@@ -88,14 +89,16 @@ def send_message(
             select(ProjectContext)
             .where(ProjectContext.project_id == data.project_id)
             .order_by(ProjectContext.created_at.desc())
-        ).all()[:30]
+            .limit(30)
+        ).all()
 
     # Fetch conversation history
     history = session.exec(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at.desc())
-    ).all()[:MAX_HISTORY]
+        .limit(MAX_HISTORY)
+    ).all()
     history.reverse()  # chronological order
 
     # Build prompt
@@ -182,7 +185,8 @@ def stream_message(
             select(ProjectContext)
             .where(ProjectContext.project_id == data.project_id)
             .order_by(ProjectContext.created_at.desc())
-        ).all()[:30]
+            .limit(30)
+        ).all()
 
         # Check for @mention routing
         mention = _parse_mention(data.content)
@@ -190,7 +194,7 @@ def stream_message(
             agent = session.exec(
                 select(Agent)
                 .where(Agent.project_id == data.project_id)
-                .where(Agent.name == mention)
+                .where(sa_func.lower(Agent.name) == mention.lower())
             ).first()
             if agent:
                 agent_name = agent.name
@@ -201,7 +205,8 @@ def stream_message(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at.desc())
-    ).all()[:MAX_HISTORY]
+        .limit(MAX_HISTORY)
+    ).all()
     history.reverse()
 
     # Build prompt
@@ -268,13 +273,21 @@ def stream_message(
             done_event["agent_name"] = agent_name
         yield _sse(done_event)
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _parse_mention(content: str) -> Optional[str]:
     """Extract first @mention from message content."""
     import re
-    match = re.match(r"^@(\w+)\s", content)
+    match = re.match(r"^@(\w[\w-]*)(?:\s|$)", content)
     return match.group(1) if match else None
 
 
@@ -300,7 +313,7 @@ def list_sessions(
     session: Session = Depends(get_session),
 ):
     """List chat sessions, optionally filtered by project."""
-    from sqlalchemy import func as sa_func, desc
+    from sqlalchemy import desc
 
     last_msg = sa_func.max(ChatMessage.created_at).label("last_message_at")
     stmt = (
@@ -311,7 +324,7 @@ def list_sessions(
             last_msg,
         )
         .group_by(ChatMessage.session_id, ChatMessage.project_id)
-        .order_by(desc("last_message_at"))
+        .order_by(desc(last_msg))
     )
     if project_id:
         stmt = stmt.where(ChatMessage.project_id == project_id)
