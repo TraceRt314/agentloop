@@ -1,4 +1,4 @@
-.PHONY: install dev backend frontend seed test lint docker clean help
+.PHONY: install dev backend frontend seed setup-openclaw test lint docker clean help
 
 PYTHON := .venv/bin/python
 UVICORN := .venv/bin/uvicorn
@@ -33,6 +33,11 @@ frontend: ## Start Next.js frontend (port 3002)
 
 seed: ## Seed database with example project + agents
 	$(PYTHON) scripts/seed.py
+
+# ── OpenClaw ─────────────────────────────────────────────────
+
+setup-openclaw: ## Install and configure OpenClaw gateway
+	bash scripts/setup-openclaw.sh
 
 # ── Quality ──────────────────────────────────────────────────
 

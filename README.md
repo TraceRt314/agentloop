@@ -132,6 +132,29 @@ AGENTLOOP_LLM_API_KEY=
 
 See [`.env.example`](.env.example) for the full list of options.
 
+### Using with OpenClaw + Claude Code
+
+[OpenClaw](https://openclaw.dev) lets your agents use Claude Code as their LLM backend via a local gateway.
+
+```bash
+# 1. Install and configure OpenClaw
+make setup-openclaw
+
+# 2. Start the gateway (runs as a LaunchAgent)
+openclaw gateway start
+
+# 3. Create agents with provider=openclaw in the Agents tab
+#    or set globally in .env:
+AGENTLOOP_LLM_PROVIDER=openclaw
+```
+
+The setup script will:
+- Install the `openclaw` CLI if not present
+- Run `openclaw onboard` for first-time setup
+- Extract the gateway token and write it to `.env`
+- Enable the `openclaw` plugin
+- Run a health check to verify connectivity
+
 ## Plugin System
 
 AgentLoop uses a directory-based plugin system. Each plugin is a folder in `plugins/` with a `plugin.yaml` manifest.
