@@ -40,27 +40,27 @@ AgentLoop Central (orquestación, DB, dashboard)
 
 ---
 
-## Fase 1 — OpenClaw + Gestión de agentes
+## Fase 1 — OpenClaw + Gestión de agentes ✅
 
 > "Que configurar OpenClaw + Claude Code sea trivial, y que pueda añadir agentes eligiendo qué LLM usan"
 
-- [ ] 1.1 Setup guiado de OpenClaw — docs + script `make setup-openclaw` que configura el gateway, genera token, y conecta con AgentLoop
-- [ ] 1.2 UI de gestión de agentes — crear/editar agentes desde el dashboard: nombre, rol, LLM provider (Ollama/Claude/OpenAI/OpenRouter), modelo, nivel de reasoning (fast/balanced/deep), system prompt
-- [ ] 1.3 Modelo configurable por agente — cada agente puede usar un LLM distinto (ej: PM usa Claude Sonnet, dev usa Claude Code, QA usa Ollama local)
-- [ ] 1.4 Dashboard accesible en LAN — bind a `0.0.0.0`, mDNS/hostname, accesible desde móvil/tablet en la misma red
-- [ ] 1.5 Health checks visuales — ver en el dashboard qué nodos están conectados, qué LLMs responden, latencia
+- [x] 1.1 Setup guiado de OpenClaw — docs + script `make setup-openclaw` que configura el gateway, genera token, y conecta con AgentLoop
+- [x] 1.2 UI de gestión de agentes — crear/editar agentes desde el dashboard: nombre, rol, LLM provider (Ollama/Claude/OpenAI/OpenRouter), modelo, nivel de reasoning (fast/balanced/deep), system prompt
+- [x] 1.3 Modelo configurable por agente — cada agente puede usar un LLM distinto (ej: PM usa Claude Sonnet, dev usa Claude Code, QA usa Ollama local)
+- [x] 1.4 Dashboard accesible en LAN — bind a `0.0.0.0`, mDNS/hostname, accesible desde móvil/tablet en la misma red
+- [x] 1.5 Health checks visuales — ver en el dashboard qué nodos están conectados, qué LLMs responden, latencia
 
 ---
 
-## Fase 2 — Chat de verdad
+## Fase 2 — Chat de verdad ✅
 
 > "Que hablar con tus agentes desde la web sea fluido — streaming, markdown, contexto"
 
-- [ ] 2.1 Streaming responses (SSE) — el chat muestra tokens en tiempo real conforme el LLM responde
-- [ ] 2.2 Markdown + syntax highlighting en respuestas (code blocks, listas, tablas)
-- [ ] 2.3 Historial persistente — el chat sobrevive a reloads, con sesiones navegables
-- [ ] 2.4 Contexto de proyecto inyectado — el agente sabe en qué proyecto trabaja, qué archivos hay, qué se hizo antes
-- [ ] 2.5 Multi-agente en chat — hablar con agentes específicos (`@dev haz X`, `@pm prioriza Y`). OpenClaw ya soporta multi-agent routing; AgentLoop debe exponerlo en la UI
+- [x] 2.1 Streaming responses (SSE) — el chat muestra tokens en tiempo real conforme el LLM responde
+- [x] 2.2 Markdown + syntax highlighting en respuestas (code blocks, listas, tablas)
+- [x] 2.3 Historial persistente — el chat sobrevive a reloads, con sesiones navegables
+- [x] 2.4 Contexto de proyecto inyectado — el agente sabe en qué proyecto trabaja, qué archivos hay, qué se hizo antes
+- [x] 2.5 Multi-agente en chat — hablar con agentes específicos (`@dev haz X`, `@pm prioriza Y`). OpenClaw ya soporta multi-agent routing; AgentLoop debe exponerlo en la UI
 
 ---
 
