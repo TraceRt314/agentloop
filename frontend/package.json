@@ -8,7 +8,6 @@
     "start": "next start --port 3002"
   },
   "dependencies": {
-    "@pixi/react": "^8.0.5",
     "@tailwindcss/postcss": "latest",
     "next": "latest",
     "pixi.js": "^8.16.0",
