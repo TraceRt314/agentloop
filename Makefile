@@ -24,7 +24,7 @@ dev: ## Start backend + frontend (parallel)
 	@make -j2 backend frontend
 
 backend: ## Start FastAPI backend (port 8080)
-	$(UVICORN) agentloop.main:app --host 127.0.0.1 --port 8080 --reload
+	$(UVICORN) agentloop.main:app --host 0.0.0.0 --port 8080 --reload
 
 frontend: ## Start Next.js frontend (port 3002)
 	cd frontend && pnpm dev
