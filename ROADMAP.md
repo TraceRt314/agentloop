@@ -13,13 +13,13 @@ Open-source, zero dependencias propietarias, funciona con Ollama out-of-the-box.
 > "Que cualquiera pueda hacer `git clone && make dev` y tener algo funcionando en 5 min"
 
 - [x] 0.1 LLM provider agnóstico (OpenAI, Anthropic, Ollama, OpenRouter — sin OpenClaw)
-- [ ] 0.2 `.env.example` con Ollama como default
-- [ ] 0.3 Fix Docker (pnpm, standalone, ports)
-- [ ] 0.4 Makefile (`make dev`, `make seed`, `make test`, `make docker`)
-- [ ] 0.5 README.md (hero, quickstart, features, arquitectura)
+- [x] 0.2 `.env.example` con Ollama como default
+- [x] 0.3 Fix Docker (pnpm, standalone, ports)
+- [x] 0.4 Makefile (`make dev`, `make seed`, `make test`, `make docker`)
+- [x] 0.5 README.md (hero, quickstart, features, arquitectura)
 - [x] 0.6 Limpiar dead code
 - [x] 0.7 Fix bugs conocidos (TasksPanel ruta, EventFeed keys)
-- [ ] 0.8 URLs configurables (env vars para WS/API en frontend)
+- [x] 0.8 URLs configurables (env vars para WS/API en frontend)
 
 ## Fase 1 — Chat de verdad
 
