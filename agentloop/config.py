@@ -39,9 +39,19 @@ class Settings(BaseSettings):
     # Step execution
     step_timeout_seconds: int = 300
 
+    # LLM provider (ollama, openai, openrouter, custom)
+    llm_provider: str = "ollama"
+    llm_model: str = "llama3.2"
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = ""
+
     # Projects and agents directories
     agents_dir: str = "./agents"
     projects_dir: str = "./projects"
+
+    # Plugins
+    plugins_dir: str = "./plugins"
+    enabled_plugins: str = ""  # comma-separated, empty = all
 
     # Logging
     log_level: str = "INFO"

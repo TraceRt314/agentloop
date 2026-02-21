@@ -1,0 +1,22 @@
+name: llm
+version: "0.1.0"
+description: Generic LLM provider — works with Ollama, OpenAI, OpenRouter, and any OpenAI-compatible API
+hooks:
+  - hooks
+config_schema:
+  llm_provider:
+    type: string
+    default: "ollama"
+    description: "Provider name (ollama, openai, openrouter, custom)"
+  llm_model:
+    type: string
+    default: "llama3.2"
+    description: "Model name to use"
+  llm_base_url:
+    type: string
+    default: "http://localhost:11434/v1"
+    description: "Base URL for the OpenAI-compatible API"
+  llm_api_key:
+    type: string
+    default: ""
+    description: "API key (not needed for Ollama)"
