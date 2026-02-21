@@ -1,6 +1,6 @@
 """Centralized protocols for pluggable backends."""
 
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Iterator, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -21,3 +21,7 @@ class ChatDispatcher(Protocol):
 
     @property
     def available(self) -> bool: ...
+
+    def stream_send(self, session_id: str, message: str) -> Iterator[str]:
+        """Yield text chunks from a streaming chat response."""
+        ...

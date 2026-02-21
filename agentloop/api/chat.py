@@ -1,14 +1,16 @@
 """Chat API — proxy to pluggable chat backend with persistent history."""
 
+import json
 import logging
 from typing import List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from ..database import get_session
-from ..models import ChatMessage, Project, ProjectContext
+from ..models import Agent, ChatMessage, Project, ProjectContext
 from ..schemas import (
     ChatMessageCreate,
     ChatMessageResponse,
@@ -141,6 +143,139 @@ def send_message(
         assistant_message=ChatMessageResponse.model_validate(assistant_msg),
         session_id=session_id,
     )
+
+
+def _sse(event: dict) -> str:
+    """Format a dict as an SSE data line."""
+    return f"data: {json.dumps(event)}\n\n"
+
+
+@router.post("/stream")
+def stream_message(
+    data: ChatMessageCreate,
+    session: Session = Depends(get_session),
+):
+    """Stream a chat response via Server-Sent Events."""
+    from plugins.llm.provider import for_config
+
+    dispatcher = _get_chat_dispatcher()
+    if dispatcher is None or not dispatcher.available:
+        raise HTTPException(
+            status_code=503, detail="No chat backend configured"
+        )
+    if not hasattr(dispatcher, "stream_send"):
+        raise HTTPException(
+            status_code=501, detail="Streaming not supported by backend"
+        )
+
+    session_id = data.session_id or str(uuid4())
+    project = None
+    context_entries: list = []
+    agent_name: Optional[str] = None
+    llm_provider = None
+
+    if data.project_id:
+        project = session.get(Project, data.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        context_entries = session.exec(
+            select(ProjectContext)
+            .where(ProjectContext.project_id == data.project_id)
+            .order_by(ProjectContext.created_at.desc())
+        ).all()[:30]
+
+        # Check for @mention routing
+        mention = _parse_mention(data.content)
+        if mention:
+            agent = session.exec(
+                select(Agent)
+                .where(Agent.project_id == data.project_id)
+                .where(Agent.name == mention)
+            ).first()
+            if agent:
+                agent_name = agent.name
+                llm_provider = for_config(agent.config)
+
+    # Fetch conversation history
+    history = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+    ).all()[:MAX_HISTORY]
+    history.reverse()
+
+    # Build prompt
+    system_prompt = _build_system_prompt(project, context_entries)
+    full_prompt = _build_chat_prompt(system_prompt, history, data.content)
+
+    # Save user message
+    user_msg = ChatMessage(
+        role="user",
+        content=data.content,
+        session_id=session_id,
+        project_id=data.project_id,
+    )
+    session.add(user_msg)
+    session.commit()
+    session.refresh(user_msg)
+
+    # Prepare context for the generator (detach from session)
+    project_name = project.name if project else None
+    knowledge_count = len(context_entries)
+    project_id = data.project_id
+
+    def generate():
+        yield _sse({"type": "start", "session_id": session_id})
+
+        if project_name:
+            yield _sse({
+                "type": "context",
+                "project": project_name,
+                "knowledge_count": knowledge_count,
+            })
+
+        full_text = ""
+        try:
+            for chunk in dispatcher.stream_send(
+                session_id=f"agentloop-chat-{session_id}",
+                message=full_prompt,
+                provider=llm_provider,
+            ):
+                full_text += chunk
+                yield _sse({"type": "token", "content": chunk})
+        except Exception as e:
+            logger.error("Stream failed: %s", e)
+            full_text = f"Error: {e}"
+            yield _sse({"type": "error", "content": str(e)})
+
+        # Save assistant message in a new session
+        from ..database import get_sync_session
+
+        with get_sync_session() as db:
+            assistant_msg = ChatMessage(
+                role="assistant",
+                content=full_text or "(No response)",
+                session_id=session_id,
+                project_id=project_id,
+            )
+            db.add(assistant_msg)
+            db.commit()
+            db.refresh(assistant_msg)
+            msg_id = str(assistant_msg.id)
+
+        done_event = {"type": "done", "message_id": msg_id}
+        if agent_name:
+            done_event["agent_name"] = agent_name
+        yield _sse(done_event)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+def _parse_mention(content: str) -> Optional[str]:
+    """Extract first @mention from message content."""
+    import re
+    match = re.match(r"^@(\w+)\s", content)
+    return match.group(1) if match else None
 
 
 @router.get("/history/{session_id}", response_model=List[ChatMessageResponse])

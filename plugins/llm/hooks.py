@@ -47,6 +47,13 @@ class LLMChatDispatcher:
             logger.error("LLM chat failed for session %s: %s", session_id, e)
             return {"status": "error", "error": str(e), "text": ""}
 
+    def stream_send(self, session_id: str, message: str, provider=None):
+        """Yield text chunks via streaming chat completion."""
+        from .provider import get_provider
+
+        llm = provider or get_provider()
+        yield from llm.chat_stream(prompt=message)
+
     def extract_text(self, result: dict) -> str:
         return result.get("text", "")
 

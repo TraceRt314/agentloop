@@ -83,6 +83,32 @@ class LLMProvider:
 
         return response.choices[0].message.content or ""
 
+    def chat_stream(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        """Yield text chunks from a streaming chat completion."""
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+
+        for chunk in response:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+
 
 # Module-level singleton (created on first import)
 _instance: Optional[LLMProvider] = None
