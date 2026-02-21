@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { AgentState, WSMessage } from "./types";
 
 const WS_URL = typeof window !== "undefined"
-  ? (process.env.NEXT_PUBLIC_WS_URL || `ws://${window.location.hostname}:8080/api/v1/ws`)
+  ? (process.env.NEXT_PUBLIC_WS_URL || `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/v1/ws`)
   : "";
 
 export function useAgentWebSocket() {
