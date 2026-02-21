@@ -34,6 +34,13 @@ class OpenClawChatDispatcher:
             session_id=session_id, message=message, timeout=timeout,
         )
 
+    def stream_send(self, session_id: str, message: str, provider=None):
+        """Stream via LLM provider (OpenClaw CLI doesn't support streaming)."""
+        from plugins.llm.provider import get_provider
+
+        llm = provider or get_provider()
+        yield from llm.chat_stream(prompt=message)
+
     def extract_text(self, result: dict) -> str:
         from agentloop.integrations.openclaw import gateway_client
         return gateway_client.extract_response_text(result)
