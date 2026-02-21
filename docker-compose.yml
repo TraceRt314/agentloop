@@ -1,82 +1,44 @@
-version: '3.8'
-
 services:
   # ─── AgentLoop Backend (FastAPI) ───
   agentloop:
     build: .
     ports:
-      - "8000:8000"
+      - "8080:8080"
+    env_file: .env
     environment:
-      - AGENTLOOP_DATABASE_URL=sqlite:///./data/agentloop.db
-      - AGENTLOOP_DEBUG=false
-      - AGENTLOOP_LOG_LEVEL=INFO
       - AGENTLOOP_API_HOST=0.0.0.0
-      - AGENTLOOP_API_PORT=8000
-      - AGENTLOOP_MC_BASE_URL=http://mission-control:8002
-      - AGENTLOOP_OPENCLAW_GATEWAY_URL=ws://openclaw:18789
-      - AGENTLOOP_BOARD_MAP=${AGENTLOOP_BOARD_MAP:-{}}
-      - AGENTLOOP_MC_TOKEN=${AGENTLOOP_MC_TOKEN:-}
-      - AGENTLOOP_MC_ORG_ID=${AGENTLOOP_MC_ORG_ID:-}
+      - AGENTLOOP_API_PORT=8080
+      - AGENTLOOP_ENABLED_PLUGINS=llm,knowledge,office-viz,tasks
     volumes:
       - ./data:/app/data
       - ./agents:/app/agents
       - ./projects:/app/projects
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
-    depends_on:
-      mission-control:
-        condition: service_healthy
 
-  # ─── Frontend (Next.js + PixiJS) ───
+  # ─── Frontend (Next.js) ───
   frontend:
     build: ./frontend
     ports:
       - "3002:3002"
     environment:
-      - NEXT_PUBLIC_API_URL=http://agentloop:8000
-      - NEXT_PUBLIC_WS_URL=ws://agentloop:8000
+      - NEXT_PUBLIC_API_URL=http://agentloop:8080
     restart: unless-stopped
     depends_on:
       agentloop:
         condition: service_healthy
 
-  # ─── Mission Control ───
-  mission-control:
-    image: ${MC_IMAGE:-ghcr.io/tracert314/mission-control:latest}
-    ports:
-      - "8002:8002"
-    environment:
-      - MC_PORT=8002
-      - MC_HOST=0.0.0.0
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8002/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  # ─── OpenClaw Gateway (optional) ───
-  openclaw:
-    image: ${OPENCLAW_IMAGE:-ghcr.io/tracert314/openclaw-gateway:latest}
-    ports:
-      - "18789:18789"
-    environment:
-      - OPENCLAW_PORT=18789
-    restart: unless-stopped
-    profiles: ["openclaw"]
-
-  # ─── Ticker (cron-like simulation driver) ───
+  # ─── Ticker (optional — auto-runs orchestration ticks) ───
   ticker:
     build: .
     entrypoint: ["bash", "/app/scripts/ticker.sh", "15"]
     environment:
-      - AGENTLOOP_API_BASE_URL=http://agentloop:8000
+      - AGENTLOOP_API_BASE_URL=http://agentloop:8080
     volumes:
       - ./scripts:/app/scripts:ro
     restart: unless-stopped
@@ -84,24 +46,3 @@ services:
       agentloop:
         condition: service_healthy
     profiles: ["ticker"]
-
-  # ─── Optional: PostgreSQL ───
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: agentloop
-      POSTGRES_USER: agentloop
-      POSTGRES_PASSWORD: agentloop_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    profiles: ["postgres"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agentloop"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-volumes:
-  postgres_data:

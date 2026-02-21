@@ -1,18 +1,21 @@
 FROM node:20-slim AS builder
 
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
-COPY . .
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
-RUN npm run build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+ENV NEXT_PUBLIC_API_URL=http://agentloop:8080
+RUN pnpm build
 
 FROM node:20-slim
 WORKDIR /app
+
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+COPY --from=builder /app/public ./public 2>/dev/null || true
 
 ENV PORT=3002
 EXPOSE 3002
