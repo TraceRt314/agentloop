@@ -8,6 +8,7 @@ import StatusPanel from "@/components/StatusPanel";
 import TasksPanel from "@/components/TasksPanel";
 import SystemPanel from "@/components/SystemPanel";
 import ChatPanel from "@/components/ChatPanel";
+import AgentsPanel from "@/components/AgentsPanel";
 import { pluginTabs, PluginTab } from "@/lib/plugin-registry";
 import { pluginComponents } from "@/lib/plugin-components";
 
@@ -35,6 +36,7 @@ interface TabDef {
 // Core tabs always present
 const CORE_TABS: TabDef[] = [
   { id: "office", label: "office" },
+  { id: "agents", label: "agents" },
   { id: "tasks", label: "tasks" },
   { id: "chat", label: "chat" },
   { id: "system", label: "system" },
@@ -98,7 +100,7 @@ export default function Home() {
 
   // Find if the active tab is a plugin tab
   const activeTabDef = allTabs.find((t) => t.id === activeTab);
-  const isPluginTab = activeTabDef?.plugin && !["office", "tasks", "chat", "system"].includes(activeTab);
+  const isPluginTab = activeTabDef?.plugin && !["office", "agents", "tasks", "chat", "system"].includes(activeTab);
 
   return (
     <div className="h-screen flex flex-col">
@@ -169,6 +171,12 @@ export default function Home() {
               <EventFeed events={events} />
             </aside>
           </>
+        )}
+
+        {activeTab === "agents" && (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AgentsPanel projectId={selectedProjectId} />
+          </div>
         )}
 
         {activeTab === "tasks" && (
