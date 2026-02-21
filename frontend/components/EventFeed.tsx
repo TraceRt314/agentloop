@@ -44,7 +44,7 @@ export default function EventFeed({ events }: Props) {
         )}
         {events.map((ev, i) => (
           <div
-            key={i}
+            key={`${ev.type}-${ev.ts}-${i}`}
             className="flex items-start gap-2 px-2 py-1 rounded hover:bg-slate-800/30 transition text-[11px]"
           >
             <span className="ui-label text-slate-600 shrink-0 w-5 text-center" style={{ fontSize: 9 }}>
